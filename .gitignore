@@ -1,0 +1,29 @@
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+
+# 临时文件
+*.tmp
+*.bak
+~$*
+
+# 环境与密钥（任何情况下都不入库）
+.env
+.env.*
+*.key
+*.pem
+
+# 含个人信息的原始材料 —— 永不入库
+raw/
+private/
+*.personal.*
+
+# 导出产物
+*.pdf
+!docs/**/*.pdf
+*.docx
+!docs/**/*.docx
