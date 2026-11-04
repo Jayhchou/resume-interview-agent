@@ -1,0 +1,40 @@
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+
+# 临时文件
+*.tmp
+*.bak
+~$*
+
+# 环境与密钥（任何情况下都不入库）
+.env
+.env.*
+*.key
+*.pem
+
+# 含个人信息的原始材料 —— 永不入库
+raw/
+private/
+*.personal.*
+
+# 依赖与缓存
+__pycache__/
+*.py[cod]
+node_modules/
+.venv/
+venv/
+.pytest_cache/
+
+# 日志
+*.log
+
+# 导出产物：docx / pdf 默认不入库，docs/ 下的定稿版本例外
+*.pdf
+!docs/**/*.pdf
+*.docx
+!docs/**/*.docx
