@@ -1,0 +1,2321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 面试官 · IT 技术岗模拟面试</title>
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tencent-ai/workbuddy-cloud-sdk@dev/lib/index.global.js"></script>
+<!-- Live2D 依赖（虚拟人形象） -->
+<script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pixi.js@7.4.2/dist/pixi.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/RaSan147/pixi-live2d-display@v0.5.0-ls-8/dist/cubism4.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f4f0;
+    --bg-deep: #efebe4;
+    --panel: #ffffff;
+    --panel-2: #faf9f6;
+    --border: #e6e1d8;
+    --border-strong: #d8d2c7;
+    --text: #2b2a27;
+    --text-dim: #8a857c;
+    --text-faint: #b0aba1;
+    --accent: #2b4c7e;
+    --accent-soft: #e8eef6;
+    --accent-line: #c7d5e6;
+    --ok: #3e7c5b;
+    --ok-soft: #e9f2ec;
+    --warn: #a9761a;
+    --warn-soft: #f6efe0;
+    --bad: #b04a3f;
+    --bad-soft: #f5e9e7;
+    --shadow: 0 1px 2px rgba(43,42,39,.05), 0 4px 16px rgba(43,42,39,.06);
+    --radius: 8px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    background: var(--bg);
+    background-image: radial-gradient(circle at 15% 0%, #ece7de 0%, transparent 42%), radial-gradient(circle at 90% 8%, #e6eef6 0%, transparent 40%);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app { width: 100%; max-width: 980px; padding: 32px 24px 72px; }
+
+  /* 顶部 */
+  .header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 28px 28px; margin-bottom: 22px;
+    background: linear-gradient(120deg, #1f3d63 0%, #2b4c7e 55%, #33598f 100%);
+    border-radius: 12px; color: #fff;
+    box-shadow: 0 2px 4px rgba(43,42,39,.06), 0 12px 32px rgba(31,61,99,.18);
+  }
+  .avatar {
+    width: 52px; height: 52px; border-radius: 12px;
+    background: rgba(255,255,255,.14); color: #fff;
+    border: 1px solid rgba(255,255,255,.22);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .avatar svg { display: block; }
+  .header-info h1 { font-size: 22px; font-weight: 700; letter-spacing: -.01em; color: #fff; }
+  .header-info p { font-size: 13px; color: rgba(255,255,255,.72); margin-top: 3px; }
+  .status-badge {
+    margin-left: auto; font-size: 12px; padding: 5px 13px;
+    border-radius: 20px; background: rgba(255,255,255,.14);
+    color: #eaf3e0; border: 1px solid rgba(255,255,255,.22);
+    white-space: nowrap; font-weight: 500;
+  }
+
+  /* 阶段卡片 */
+  .stage {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 28px; margin-bottom: 18px;
+    box-shadow: 0 1px 2px rgba(43,42,39,.04), 0 8px 24px rgba(43,42,39,.07);
+  }
+  .stage h2 { font-size: 17px; margin-bottom: 20px; font-weight: 700; letter-spacing: -.01em; }
+  .stage h2 .step-tag {
+    display: inline-block; font-size: 11px; color: var(--text-faint);
+    font-weight: 600; letter-spacing: .04em;
+    border-left: 3px solid var(--accent);
+    padding-left: 8px; margin-right: 10px; line-height: 1.2;
+    vertical-align: 1px;
+  }
+
+  /* 岗位选择 */
+  .role-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .role-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 18px 16px; cursor: pointer; text-align: center;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .role-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow); }
+  .role-card.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .role-card .icon {
+    width: 44px; height: 44px; margin: 0 auto 12px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--accent-soft); border-radius: 8px; color: var(--accent);
+  }
+  .role-card .icon svg { display: block; }
+  .role-card.active .icon { background: var(--accent); color: #fff; }
+  .role-card .name { font-size: 14px; font-weight: 600; }
+  .role-card .desc { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+  /* 背景选择 */
+  .bg-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+  .bg-chip {
+    padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--panel); cursor: pointer; font-size: 13px; transition: all .15s;
+  }
+  .bg-chip:hover { border-color: var(--border-strong); }
+  .bg-chip.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+
+  /* 面试场景选择 */
+  .scene-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .scene-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px; cursor: pointer; text-align: center;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .scene-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow); }
+  .scene-card.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .scene-card .scene-name { font-size: 14px; font-weight: 600; }
+  .scene-card .scene-desc { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+  /* 按钮 */
+  .btn {
+    display: inline-block; padding: 11px 26px; border-radius: 6px;
+    border: none; cursor: pointer; font-size: 14px; font-weight: 600;
+    background: var(--accent); color: #fff; transition: background .15s;
+  }
+  .btn:hover { background: #234064; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.secondary {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border-strong);
+  }
+  .btn.secondary:hover { background: var(--panel-2); }
+
+  /* 聊天区 */
+  .chat { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+  .chat-head {
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600;
+  }
+  .chat-body { padding: 20px; max-height: 460px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; background: var(--panel-2); }
+  .msg { display: flex; gap: 10px; max-width: 85%; }
+  .msg.interviewer { align-self: flex-start; }
+  .msg.candidate { align-self: flex-end; flex-direction: row-reverse; }
+  .msg .bubble {
+    padding: 11px 15px; border-radius: 10px; font-size: 14px; line-height: 1.65;
+    background: var(--panel); border: 1px solid var(--border);
+  }
+  .msg.candidate .bubble { background: var(--accent-soft); border-color: var(--accent-line); }
+  .msg .who { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+  .typing { color: var(--text-dim); font-size: 13px; }
+  .msg.preparing .bubble { animation: preparingPulse 1.4s ease-in-out infinite; }
+  @keyframes preparingPulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+
+  /* 输入区 */
+  .chat-input {
+    padding: 14px 18px; border-top: 1px solid var(--border);
+    display: flex; gap: 10px; align-items: flex-end; background: var(--panel);
+  }
+  .chat-input textarea {
+    flex: 1; background: var(--panel-2); border: 1px solid var(--border-strong);
+    border-radius: 8px; padding: 11px 14px; color: var(--text);
+    font-size: 14px; resize: none; min-height: 44px; max-height: 120px;
+    font-family: inherit; outline: none; transition: border-color .15s;
+  }
+  .chat-input textarea:focus { border-color: var(--accent); }
+  .mic-btn {
+    width: 44px; height: 44px; border-radius: 8px; border: 1px solid var(--border-strong);
+    background: var(--panel); cursor: pointer; font-size: 19px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; color: var(--text-dim);
+  }
+  .mic-btn.recording { background: var(--bad); border-color: var(--bad); color: #fff; animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+
+  /* 报告 */
+  .report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  @media (max-width: 640px) { .report-grid { grid-template-columns: 1fr; } }
+  .score-list { display: flex; flex-direction: column; gap: 14px; }
+  .score-item { display: flex; align-items: center; gap: 12px; }
+  .score-item .label { font-size: 13px; width: 84px; flex-shrink: 0; color: var(--text-dim); }
+  .score-bar { flex: 1; height: 8px; background: var(--bg-deep); border-radius: 4px; overflow: hidden; }
+  .score-bar .fill { height: 100%; border-radius: 4px; background: var(--accent); transition: width .6s; }
+  .score-item .val { font-size: 14px; font-weight: 700; width: 40px; text-align: right; color: var(--text); }
+  .radar-box { display: flex; align-items: center; justify-content: center; }
+  .conclusion {
+    margin-top: 20px; padding: 18px; border-radius: var(--radius);
+    background: var(--ok-soft); border: 1px solid #cfe2d6;
+  }
+  .conclusion .big { font-size: 28px; font-weight: 700; color: var(--ok); letter-spacing: -.01em; }
+  .conclusion .txt { font-size: 14px; color: var(--text); margin-top: 6px; }
+
+  .diag-item { padding: 14px 0; border-bottom: 1px solid var(--border); }
+  .diag-item:last-child { border-bottom: none; }
+  .diag-item .q { font-size: 14px; margin-bottom: 8px; font-weight: 500; }
+  .diag-item .tag { display: inline-block; font-size: 11px; padding: 3px 9px; border-radius: 4px; margin-right: 6px; }
+  .tag.miss { background: var(--bad-soft); color: var(--bad); }
+  .tag.hit { background: var(--ok-soft); color: var(--ok); }
+
+  /* 示例提示词 */
+  .demo-list { display: flex; flex-direction: column; gap: 10px; }
+  .demo-item {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 13px 16px; cursor: pointer; font-size: 14px; transition: border-color .15s;
+  }
+  .demo-item:hover { border-color: var(--border-strong); }
+  .demo-item .demo-label { font-size: 11px; color: var(--accent); margin-bottom: 4px; font-weight: 600; }
+
+  .foot { text-align: center; font-size: 12px; color: var(--text-faint); margin-top: 28px; }
+
+  /* 流程导航 */
+  .flow-nav {
+    display: flex; gap: 8px; margin-bottom: 18px;
+  }
+  .flow-step {
+    flex: 1; text-align: center; padding: 12px 8px;
+    font-size: 13px; color: var(--text-dim); cursor: pointer; transition: all .15s;
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  }
+  .flow-step:hover { color: var(--text); border-color: var(--border-strong); }
+  .flow-step.active { color: #fff; font-weight: 600; background: var(--accent); border-color: var(--accent); box-shadow: var(--shadow); }
+  .flow-step .num { display: inline-block; width: 18px; height: 18px; line-height: 18px; border-radius: 50%; background: var(--bg-deep); font-size: 11px; margin-right: 5px; color: var(--text-dim); }
+  .flow-step.active .num { background: rgba(255,255,255,.2); color: #fff; }
+
+  /* 简历表单 */
+  .resume-form { display: flex; flex-direction: column; gap: 16px; }
+  .resume-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 560px) { .resume-two-col { grid-template-columns: 1fr; } }
+  .field-label { font-size: 13px; color: var(--text-dim); margin-bottom: 6px; font-weight: 500; }
+  .resume-form input, .resume-form textarea {
+    width: 100%; background: var(--panel-2); border: 1px solid var(--border-strong);
+    border-radius: 8px; padding: 12px 14px; color: var(--text);
+    font-size: 14px; font-family: inherit; outline: none; transition: border-color .15s;
+  }
+  .resume-form input:focus, .resume-form textarea:focus { border-color: var(--accent); }
+  .resume-form textarea { min-height: 140px; resize: vertical; line-height: 1.6; }
+
+  /* 简历评分结果 */
+  .resume-result { margin-top: 20px; display: none; }
+  .resume-result.show { display: block; }
+  .match-big { text-align: center; padding: 20px; }
+  .match-big .pct { font-size: 52px; font-weight: 700; color: var(--accent); letter-spacing: -.02em; }
+  .match-big .lbl { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
+  .skill-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .skill-tag {
+    font-size: 12px; padding: 4px 12px; border-radius: 6px;
+    background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-line);
+  }
+  /* 简历文件上传 */
+  .upload-zone {
+    border: 1px dashed var(--border-strong); border-radius: var(--radius);
+    padding: 24px; text-align: center; cursor: pointer;
+    transition: all .15s; color: var(--text-dim); background: var(--panel-2);
+  }
+  .upload-zone:hover, .upload-zone.dragover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .upload-zone .up-icon { font-size: 26px; margin-bottom: 8px; color: var(--text-faint); display: flex; justify-content: center; }
+  .upload-zone .up-icon svg { display: block; }
+  .upload-zone:hover .up-icon, .upload-zone.dragover .up-icon { color: var(--accent); }
+  .upload-zone .up-text { font-size: 13px; }
+  .upload-zone .up-hint { font-size: 12px; color: var(--text-faint); margin-top: 4px; }
+  .upload-zone input[type=file] { display: none; }
+  .file-status { font-size: 13px; color: var(--ok); margin-top: 8px; display: none; }
+  .file-status.show { display: block; }
+  .file-status.error { color: var(--bad); }
+
+  .sugg-item { padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text-dim); }
+  .sugg-item:last-child { border-bottom: none; }
+  .sugg-item::before { content: "• "; color: var(--warn); }
+
+  /* 事实清单 */
+  .fact-sheet { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .fact-sheet th, .fact-sheet td {
+    text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border);
+    vertical-align: top; line-height: 1.55;
+  }
+  .fact-sheet th { font-size: 12px; color: var(--text-dim); font-weight: 600; white-space: nowrap; background: var(--panel-2); }
+  .fact-sheet td.fact-id { color: var(--accent); font-weight: 600; white-space: nowrap; }
+  .fact-sheet .fact-stmt { color: var(--text); }
+  .fact-sheet .fact-result { color: var(--text); }
+  .fact-sheet .fact-result.pending { color: var(--warn); }
+  .fact-sheet .role-sel, .fact-sheet input.fact-result-input {
+    font-size: 12px; padding: 4px 8px; border: 1px solid var(--border-strong);
+    border-radius: 6px; background: var(--panel); color: var(--text); font-family: inherit;
+  }
+  .fact-sheet input.fact-result-input { width: 100%; min-width: 140px; }
+  .fact-sheet .evi-strong { color: var(--ok); }
+  .fact-sheet .evi-mid { color: var(--warn); }
+  .fact-sheet .evi-weak { color: var(--bad); }
+  .fact-sheet .fact-follow { color: var(--text-dim); font-size: 12px; }
+  .fact-badge {
+    display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500;
+  }
+  .fact-badge.pending { background: var(--warn-soft); color: var(--warn); }
+  .fact-badge.strong { background: var(--ok-soft); color: var(--ok); }
+  .fact-badge.mid { background: var(--warn-soft); color: var(--warn); }
+  .fact-badge.weak { background: var(--bad-soft); color: var(--bad); }
+
+  /* 面试主视觉区：虚拟人 + 摄像头侧边 */
+  .interview-stage {
+    display: flex; gap: 16px; align-items: stretch;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px; margin-bottom: 16px;
+    box-shadow: var(--shadow);
+  }
+  .interviewer-zone {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 360px; position: relative; background: var(--panel-2); border-radius: 6px;
+  }
+  .interviewer-canvas {
+    width: 100%; min-height: 300px; display: flex; align-items: center; justify-content: center;
+  }
+  /* canvas 保持 PIXI 设置的像素尺寸，用 max-width/max-height 做响应式缩放，不用百分比覆盖 */
+  .interviewer-canvas canvas {
+    display: block; max-width: 100%; max-height: 320px; width: auto; height: auto;
+  }
+  .interviewer-info { text-align: center; margin-top: 8px; }
+  .interviewer-info .avatar-name { font-size: 15px; font-weight: 600; }
+  .interviewer-info .avatar-status { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+  /* 摄像头侧边栏 */
+  .camera-side {
+    width: 220px; flex-shrink: 0;
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 14px;
+    display: flex; flex-direction: column;
+  }
+  .camera-side h3 { font-size: 13px; margin-bottom: 10px; font-weight: 600; }
+  .camera-side .cam-toggle { margin-bottom: 10px; width: 100%; justify-content: center; }
+  .camera-wrap { position: relative; border-radius: 6px; overflow: hidden; background: #1c1c1a; aspect-ratio: 4/3; margin-bottom: 10px; }
+  .camera-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .camera-wrap .cam-placeholder {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: #b0aba1; font-size: 12px; text-align: center; padding: 8px;
+  }
+  .expr-scores { display: flex; flex-direction: column; gap: 8px; }
+  .expr-item { display: flex; align-items: center; gap: 6px; }
+  .expr-item .label { font-size: 11px; width: 52px; flex-shrink: 0; color: var(--text-dim); }
+  .expr-item .bar { flex: 1; height: 5px; background: var(--bg-deep); border-radius: 3px; overflow: hidden; }
+  .expr-item .bar .fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width .5s; }
+  .expr-item .val { font-size: 11px; font-weight: 600; width: 26px; text-align: right; }
+  .expr-tip { font-size: 11px; color: var(--text-dim); margin-top: 8px; line-height: 1.5; }
+  .cam-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 14px; border-radius: 6px; border: 1px solid var(--border-strong);
+    background: var(--panel); cursor: pointer; font-size: 12px; color: var(--text);
+  }
+  .cam-toggle.on { border-color: var(--ok); color: var(--ok); background: var(--ok-soft); }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); display: inline-block; }
+  .live-dot.on { animation: pulse 1s infinite; }
+
+  /* 移动端：竖排 */
+  @media (max-width: 640px) {
+    .interview-stage { flex-direction: column; }
+    .camera-side { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- 顶部 -->
+  <div class="header">
+    <div class="avatar" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V7a4 4 0 0 1 4-4Z"/>
+        <path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/>
+        <path d="M16 8h1a3 3 0 0 1 3 3v3M8 8H7a3 3 0 0 0-3 3v3"/>
+      </svg>
+    </div>
+    <div class="header-info">
+      <h1>AI 面试官</h1>
+      <p>IT 技术岗 · 个性化模拟面试教练</p>
+    </div>
+    <div class="status-badge" id="statusBadge">● 就绪</div>
+  </div>
+
+  <!-- 流程导航 -->
+  <div class="flow-nav" id="flowNav">
+    <div class="flow-step active" data-stage="resume" onclick="gotoStage('resume')"><span class="num">1</span>简历投递</div>
+    <div class="flow-step" data-stage="setup" onclick="gotoStage('setup')"><span class="num">2</span>选择岗位</div>
+    <div class="flow-step" data-stage="interview" onclick="gotoStage('interview')"><span class="num">3</span>模拟面试</div>
+    <div class="flow-step" data-stage="report" onclick="gotoStage('report')"><span class="num">4</span>面试报告</div>
+  </div>
+
+  <!-- 阶段 0：简历投递 -->
+  <div class="stage" id="stage-resume">
+    <h2><span class="step-tag">步骤 1</span>简历投递 · 匹配度评估</h2>
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">粘贴你的简历和目标岗位，AI 面试官将为你评估简历评分与岗位匹配度。</p>
+    <div class="resume-form">
+      <div class="resume-two-col">
+        <div>
+          <div class="field-label">目标公司</div>
+          <input type="text" id="resumeCompany" placeholder="如：腾讯、阿里巴巴…">
+        </div>
+        <div>
+          <div class="field-label">目标岗位</div>
+          <input type="text" id="resumeRole" placeholder="如：后端开发 / 前端开发 / 算法工程师">
+        </div>
+      </div>
+      <div>
+        <div class="field-label">简历内容</div>
+        <div class="upload-zone" id="uploadZone">
+          <div class="up-icon">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7"/><path d="M17 8l-5-5-5 5M12 3v13"/></svg>
+          </div>
+          <div class="up-text">点击上传简历文件，或拖拽到此处</div>
+          <div class="up-hint">支持 PDF / Word(.docx) / 纯文本(.txt)，扫描件可上传图片自动识别</div>
+          <input type="file" id="resumeFile" accept=".pdf,.docx,.txt,.md,.jpg,.jpeg,.png,.webp,.bmp">
+        </div>
+        <div class="file-status" id="fileStatus"></div>
+        <textarea id="resumeText" style="margin-top:12px;" placeholder="也可以直接粘贴简历文本，包括：教育背景、工作/实习经历、项目经验、技能栈…"></textarea>
+      </div>
+      <button class="btn" id="resumeBtn">评估简历匹配度</button>
+    </div>
+    <div class="resume-result" id="resumeResult">
+      <div class="match-big">
+        <div class="pct" id="matchPct">0%</div>
+        <div class="lbl">岗位匹配度</div>
+      </div>
+      <div class="score-list" id="resumeScores" style="margin-top:16px;"></div>
+      <div id="resumeConclusion" style="margin-top:16px;"></div>
+      <h3 style="font-size:14px;margin-top:20px;">命中技能</h3>
+      <div class="skill-tags" id="skillTags"></div>
+      <h3 style="font-size:14px;margin-top:20px;">优化建议</h3>
+      <div id="resumeSuggestions"></div>
+      <!-- 事实清单（简历→面试的桥梁） -->
+      <div id="factSheetWrap" style="margin-top:24px; display:none;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+          <h3 style="font-size:14px; margin:0;">事实清单 <span style="font-size:12px;color:var(--text-dim);font-weight:400;">（面试提问将基于此清单）</span></h3>
+          <button class="btn secondary" id="factSheetBtn" onclick="handleGenerateFactSheet()" style="padding:8px 16px;font-size:13px;">生成事实清单</button>
+        </div>
+        <div id="factSheetBody" style="font-size:13px;color:var(--text-dim);">点击上方按钮，AI 将从你的简历中抽取结构化事实清单。</div>
+      </div>
+      <div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn secondary" id="optimizeResumeBtn" onclick="handleOptimizeResume()">AI 优化简历（导出 Word）</button>
+        <button class="btn" onclick="gotoStage('setup')">下一步：开始模拟面试 →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 阶段 1：岗位与背景选择 -->
+  <div class="stage" id="stage-setup">
+    <h2><span class="step-tag">步骤 1</span>选择目标岗位</h2>
+    <div class="role-grid" id="roleGrid"></div>
+    <h2 style="margin-top:24px;"><span class="step-tag">步骤 2</span>选择你的背景</h2>
+    <div class="bg-row" id="bgRow"></div>
+    <h2 style="margin-top:24px;"><span class="step-tag">步骤 3</span>选择面试场景</h2>
+    <div class="scene-row" id="sceneRow"></div>
+    <button class="btn" id="startBtn" disabled>开始模拟面试</button>
+  </div>
+
+  <!-- 阶段 2：面试对话 -->
+  <div class="stage" id="stage-interview" style="display:none;">
+    <!-- 主视觉区：虚拟人 + 摄像头侧边 -->
+    <div class="interview-stage">
+      <div class="interviewer-zone">
+        <div class="interviewer-canvas" id="virtualAvatar">
+          <canvas id="live2dCanvas"></canvas>
+        </div>
+        <div class="interviewer-info">
+          <div class="avatar-name">AI 面试官</div>
+          <div class="avatar-status" id="avatarStatus">面试进行中 · <span id="roleLabel"></span></div>
+          <div class="avatar-status" id="live2dStatus" style="color:var(--warn);"></div>
+        </div>
+      </div>
+      <!-- 摄像头 + 表情评分侧边栏 -->
+      <div class="camera-side" id="cameraPanel">
+        <h3>真实面试</h3>
+        <button class="cam-toggle" id="camToggle"><span class="live-dot" id="liveDot"></span> 开启摄像头</button>
+        <div class="camera-wrap">
+          <video id="cameraVideo" autoplay playsinline muted style="display:none;"></video>
+          <div class="cam-placeholder" id="camPlaceholder">摄像头未开启</div>
+        </div>
+        <div class="expr-scores" id="exprScores" style="display:none;">
+          <div class="expr-item"><span class="label">眼神交流</span><div class="bar"><div class="fill" id="exprEye" style="width:0%"></div></div><span class="val" id="exprEyeVal">-</span></div>
+          <div class="expr-item"><span class="label">表情自然</span><div class="bar"><div class="fill" id="exprFace" style="width:0%"></div></div><span class="val" id="exprFaceVal">-</span></div>
+          <div class="expr-item"><span class="label">着装得体</span><div class="bar"><div class="fill" id="exprDress" style="width:0%"></div></div><span class="val" id="exprDressVal">-</span></div>
+          <div class="expr-tip" id="exprTip"></div>
+        </div>
+      </div>
+    </div>
+    <!-- 对话框（虚拟人下方） -->
+    <div class="chat">
+      <div class="chat-body" id="chatBody"></div>
+      <div class="chat-input">
+        <textarea id="inputBox" placeholder="输入你的回答…" rows="1"></textarea>
+        <button class="mic-btn" id="micBtn" title="语音输入"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+        <button class="btn" id="sendBtn">发送</button>
+      </div>
+    </div>
+    <div style="margin-top:14px; display:flex; gap:10px;">
+      <button class="btn secondary" id="endBtn">结束面试并生成报告</button>
+    </div>
+  </div>
+
+  <!-- 阶段 3：报告 -->
+  <div class="stage" id="stage-report" style="display:none;">
+    <h2><span class="step-tag">报告</span>面试总结报告</h2>
+    <div id="reportBody"></div>
+    <div style="margin-top:20px; display:flex; gap:10px;">
+      <button class="btn" id="restartBtn">再来一次</button>
+      <button class="btn secondary" id="viewDemoBtn">查看示例提示词</button>
+    </div>
+  </div>
+
+  <!-- 阶段 0：示例提示词（首页底部入口） -->
+  <div class="stage" id="stage-demo" style="display:none;">
+    <h2><span class="step-tag">示例</span>3 个场景化提示词</h2>
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">点击可一键填入，快速体验对应场景。</p>
+    <div class="demo-list" id="demoList"></div>
+    <div style="margin-top:16px;"><button class="btn secondary" id="closeDemoBtn">返回</button></div>
+  </div>
+
+  <div class="foot">本作品依托 WorkBuddy 平台开发 · 模拟面试仅为训练用途，不涉及真实身份信息</div>
+</div>
+
+<script>
+/* ============ 题库数据（内嵌自 ai-interview-coach Skill） ============ */
+const ROLES = {
+  backend: { name: '后端开发', icon: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="7" rx="1.5"/><rect x="2" y="14" width="20" height="7" rx="1.5"/><path d="M6 6.5h.01M6 17.5h.01"/></svg>', desc: 'Java/Go/微服务/数据库', bank: [
+    '请说说 JVM 内存模型，以及堆和栈的区别？',
+    '谈谈你对 HashMap 底层实现原理的理解，JDK 1.8 相比 1.7 有哪些优化？',
+    '什么是线程安全？有哪些实现线程安全的方式？',
+    '数据库索引为什么用 B+ 树而不是 B 树？什么是索引失效？',
+    '谈谈你对事务 ACID 的理解，以及隔离级别有哪些？',
+    '什么是缓存穿透、缓存击穿、缓存雪崩？分别如何解决？',
+    '谈谈你对微服务架构的理解，服务间如何通信？',
+    '你如何排查一次线上接口响应变慢的问题？'
+  ]},
+  frontend: { name: '前端开发', icon: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M13 5l-2 14"/></svg>', desc: 'Vue/React/工程化/性能', bank: [
+    '说说浏览器从输入 URL 到页面渲染的完整过程？',
+    '谈谈你对原型链和闭包的理解？',
+    '什么是防抖和节流？分别适用什么场景？',
+    '谈谈你对前端工程化和模块化的理解？',
+    '虚拟 DOM 是什么？它解决了什么问题？',
+    '如何优化前端页面加载性能？',
+    '谈谈 HTTP 缓存机制？'
+  ]},
+  algorithm: { name: '算法工程师', icon: '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M7 6h10M6.5 7.5 11 16.5M17.5 7.5 13 16.5"/></svg>', desc: '机器学习/深度学习', bank: [
+    '介绍一下你熟悉的一个机器学习模型及其原理？',
+    '什么是过拟合？如何缓解？',
+    '谈谈你对 Transformer 结构的理解？',
+    '如何评估一个模型的性能？常用指标有哪些？',
+    '数据不平衡问题如何处理？'
+  ]}
+};
+
+const BEHAVIORAL = [
+  '请分享一个你最有成就感的项目经历？',
+  '讲一次你和团队成员发生分歧，最终如何解决的经历？',
+  '描述一次你面临重大压力的经历，你是如何应对的？',
+  '讲一个你失败或犯错的经历，你从中学到了什么？',
+  '请举例说明你如何快速学习一项新技术并应用到实践中？',
+  '描述一次你主动承担责任或推动事情落地的经历？'
+];
+
+const FOLLOWUPS = ['为什么这么设计？能再往深一层说说原理吗？', '如果数据量扩大 10 倍，你的方案还成立吗？', '有没有别的方案？对比一下优缺点？', '你在项目里具体怎么用的？踩过什么坑？'];
+
+const STAR_PARTS = [
+  { key: 'S', name: '情境 Situation', desc: '当时在什么背景下？面临什么问题？' },
+  { key: 'T', name: '任务 Task', desc: '你需要达成的目标是什么？' },
+  { key: 'A', name: '行动 Action', desc: '你具体做了什么？（要体现"我"的动作）' },
+  { key: 'R', name: '结果 Result', desc: '最终结果如何？最好有量化数据' }
+];
+
+const DIMENSIONS = [
+  { key: 'tech', label: '技术深度', weight: 0.30 },
+  { key: 'project', label: '项目经验', weight: 0.25 },
+  { key: 'logic', label: '表达逻辑', weight: 0.20 },
+  { key: 'behavior', label: '行为素质', weight: 0.15 },
+  { key: 'fit', label: '岗位匹配度', weight: 0.10 }
+];
+
+// 总分 → 结论四级映射（对齐 V1.7 A.2）
+function matchLevel(total) {
+  if (total >= 85) return '强烈推荐';
+  if (total >= 70) return '推荐';
+  if (total >= 50) return '有潜力';
+  return '建议调整目标';
+}
+
+const DEMOS = [
+  { label: '示例 1 · 技术面', text: '我应聘后端开发岗，有 2 年 Java 经验，请开始模拟面试' },
+  { label: '示例 2 · STAR 诊断', text: '请用 STAR 方法评估我下面这段回答：我们团队做了一个推荐系统，效果很好' },
+  { label: '示例 3 · 生成报告', text: '面试结束，请生成我的面试总结报告和能力雷达图' }
+];
+
+/* ============ 应用状态 ============ */
+let state = {
+  role: null, background: null, scene: null,
+  questions: [], qIndex: 0, isBehavioral: [],
+  answers: [], asked: [], phase: 'setup'
+};
+
+// 面试场景（对应 V1.7 的 综合面/专业面/压力面）
+const SCENES = [
+  { key: 'general', name: '综合面', icon: '💬', desc: '技术 + 行为素质综合考察' },
+  { key: 'professional', name: '专业面', icon: '🔧', desc: '深挖技术深度与项目细节' },
+  { key: 'stress', name: '压力面', icon: '⚡', desc: '质疑强度高，考察抗压与临场' },
+];
+
+/* ============ 工具函数 ============ */
+const $ = id => document.getElementById(id);
+function setStatus(txt, color) {
+  const b = $('statusBadge'); b.textContent = '● ' + txt;
+  // 状态栏位于深蓝 hero 上，统一用高对比浅色（成功=浅绿、警告=浅琥珀、错误=浅红、默认=白）
+  const map = {
+    'var(--ok)': '#bde3cd',
+    'var(--warn)': '#f0d9a8',
+    'var(--bad)': '#f2c2bd',
+    'var(--accent)': '#c9dcf2',
+  };
+  b.style.color = map[color] || '#ffffff';
+  b.style.borderColor = 'rgba(255,255,255,.3)';
+}
+
+/* ============ 后端 API 调用 ============ */
+// 自动识别后端地址：同源则用相对路径，否则用 localStorage 缓存的后端地址
+let API_BASE = localStorage.getItem('api_base') || '';
+
+// ============ 云服务大模型（LLM）初始化 ============
+// 通过 WorkBuddy 云服务 SDK 免密钥调用内置大模型，用于面试语义评分
+let cloud = null;
+let llmModelId = null;       // 文本模型（语义评分用）
+let visionModelId = null;    // 视觉模型（OCR 扫描件用，supportsImages）
+
+function initCloud() {
+  if (typeof WorkBuddyCloud === 'undefined') {
+    console.warn('云服务 SDK 未加载，语义评分将降级为规则评分');
+    return;
+  }
+  const cfg = window.APP_CONFIG || {};
+  try {
+    cloud = WorkBuddyCloud.createWorkBuddyCloud({
+      endpoint: cfg.endpoint,
+      oauthRelayBaseUrl: cfg.oauthRelayBaseUrl,
+      publishableKey: cfg.publishableKey,
+    });
+    // 动态获取可用模型：文本模型 + 视觉模型
+    cloud.llm.models.list().then(models => {
+      const usable = models.filter(m => m.disabled !== true);
+      // 诊断：打印完整模型信息 + 存到全局供显示
+      const info = usable.map(m => ({ id: m.id, name: m.name, reasoning: m.supportsReasoning, onlyReasoning: m.onlyReasoning, vision: m.supportsImages }));
+      console.log('[模型诊断]', JSON.stringify(info, null, 2));
+      window.__models = info;
+      if (usable.length > 0) {
+        // 优先选明确的"非推理"普通文本模型（Hunyuan-Turbos 是列表里唯一的快模型）
+        // 排除 Default/Auto 等占位符，以及推理模型、图像/视频生成模型
+        const isPlaceholder = (m) => {
+          const id = (m.id || '').toLowerCase();
+          return id === 'default' || id === 'auto';
+        };
+        const isImageVideo = (m) => {
+          const id = (m.id || '').toLowerCase();
+          return id.includes('image') || id.includes('video') || id === 'kling-video-v3';
+        };
+        // 首选：hunyuan-chat（明确的快文本模型）
+        const preferred = usable.find(m => m.id === 'hunyuan-chat');
+        // 次选：任意"非推理"且非占位、非图像视频的模型
+        const fast = usable.find(m => m.supportsReasoning !== true && m.onlyReasoning !== true && !isPlaceholder(m) && !isImageVideo(m));
+        llmModelId = (preferred || fast || usable[0]).id;
+      }
+      // 找支持图片的视觉模型。
+      // 注意：auto 是占位，但实测能正常路由到可用视觉模型；具体模型（glm-4.6v等）可能因推理特性报"参数无效"
+      // 优先 auto，其次明确的多模态模型
+      const vision = usable.find(m => m.id === 'auto' && m.supportsImages === true)
+        || usable.find(m => m.id === 'glm-4.6v')
+        || usable.find(m => m.id === 'mimo-v2.6-pro')
+        || usable.find(m => m.supportsImages === true && m.id !== 'default');
+      if (vision) visionModelId = vision.id;
+      // 状态栏显示：模型列表总数 + 选中的模型名
+      const cur = usable.find(m => m.id === llmModelId);
+      const modelName = cur?.name || llmModelId;
+      const isReasoning = cur?.supportsReasoning === true || cur?.onlyReasoning === true;
+      // 列出所有模型 id+name，便于判断
+      const allNames = usable.map(m => `${m.id}|${m.name || ''}`).join('\n');
+      console.log('[模型诊断] 全部模型（id|name）：\n' + allNames);
+      setStatus(`模型 ${usable.length} 个 · 选中 ${modelName}${isReasoning ? '(推理)' : ''}`, 'var(--ok)');
+      // 显示模型列表调试面板
+      showModelDebugPanel(usable);
+    }).catch(e => { console.warn('获取模型列表失败', e); setStatus('AI 模型加载失败', 'var(--bad)'); });
+  } catch (e) {
+    console.warn('云服务初始化失败', e);
+  }
+}
+
+// 显示模型列表调试面板（临时，用于排查模型选择）
+function showModelDebugPanel(models) {
+  let panel = document.getElementById('modelDebugPanel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'modelDebugPanel';
+    panel.style.cssText = 'position:fixed;left:10px;bottom:10px;max-width:360px;max-height:300px;overflow:auto;background:#ffffff;border:1px solid #d8d2c7;border-radius:8px;padding:10px;font-size:11px;color:#2b2a27;z-index:9999;line-height:1.6;box-shadow:0 4px 16px rgba(0,0,0,.12);';
+    document.body.appendChild(panel);
+  }
+  const html = models.map((m, i) => `${i}. <b>${m.name || m.id}</b><br>&nbsp;&nbsp;&nbsp;id=${m.id}<br>&nbsp;&nbsp;&nbsp;推理=${m.supportsReasoning ? '是' : '否'} 视觉=${m.supportsImages ? '是' : '否'}`).join('<br>');
+  panel.innerHTML = '<div style="margin-bottom:6px;color:#a9761a;">模型列表（点击×关闭）：</div>' + html + '<div style="margin-top:8px;color:#b0aba1;">点击此面板关闭</div>';
+  panel.onclick = () => panel.remove();
+}
+
+// 调用大模型做单次语义评分（流式收集完整结果，带超时保护 + 耗时诊断）
+async function callLLM(systemPrompt, userPrompt, timeoutMs = 60000) {
+  if (!cloud || !llmModelId) return null;
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt },
+  ];
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let answer = '';
+  const t0 = Date.now();
+  let firstTokenMs = null;
+  try {
+    for await (const chunk of cloud.llm.chat.completions.create({
+      model: llmModelId,
+      messages,
+      stream: true,
+      temperature: 0.3,
+      signal: controller.signal,
+    })) {
+      const delta = chunk.choices && chunk.choices[0] && chunk.choices[0].delta;
+      if (delta && delta.content) {
+        if (firstTokenMs === null) {
+          firstTokenMs = Date.now() - t0;
+          console.log(`[LLM诊断] 首字延迟 ${firstTokenMs}ms（模型：${llmModelId}）`);
+        }
+        answer += delta.content;
+      }
+    }
+    const totalMs = Date.now() - t0;
+    console.log(`[LLM诊断] 完成，总耗时 ${totalMs}ms，首字 ${firstTokenMs}ms，输出 ${answer.length} 字`);
+  } catch (e) {
+    const totalMs = Date.now() - t0;
+    console.warn(`[LLM诊断] 中断/失败：${e?.name || e}，已耗时 ${totalMs}ms，首字 ${firstTokenMs}ms，已收 ${answer.length} 字`);
+    if (e?.name === 'AbortError') {
+      return answer || null;
+    }
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+  return answer;
+}
+
+// 用视觉模型识别图片（OCR 扫描件简历）
+async function ocrImage(imageDataUrl, mimeType) {
+  if (!cloud || !visionModelId) return null;
+  const messages = [
+    { role: 'system', content: '你是简历 OCR 识别助手。请把图片中的简历文字完整、准确地提取出来，按原文顺序输出纯文本，不要添加任何解释。' },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: '请识别这张简历图片中的全部文字内容。' },
+        { type: 'image_url', image_url: { url: imageDataUrl } },
+      ],
+    },
+  ];
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60000);
+  let answer = '';
+  try {
+    for await (const chunk of cloud.llm.chat.completions.create({
+      model: visionModelId,
+      messages,
+      stream: true,
+      temperature: 0.1,
+      signal: controller.signal,
+    })) {
+      const delta = chunk.choices && chunk.choices[0] && chunk.choices[0].delta;
+      if (delta && delta.content) answer += delta.content;
+    }
+  } catch (e) {
+    console.warn('OCR 调用中断：', e?.name || e);
+    return answer || null;
+  } finally {
+    clearTimeout(timer);
+  }
+  return answer;
+}
+
+// 用视觉模型分析面试者表情与着装（返回结构化评分）
+async function analyzeExpression(imageDataUrl) {
+  if (!cloud || !visionModelId) {
+    return { error: '视觉模型未就绪（cloud=' + !!cloud + ', visionModelId=' + visionModelId + '）' };
+  }
+  const modelUsed = visionModelId;
+  const messages = [
+    { role: 'system', content: '你是面试表现评估专家。根据面试者的画面，客观评估其表情与着装。只输出 JSON，不要任何解释。' },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: '请评估这位面试者的表现，输出 JSON（各维度 1-10 整数）：{"eye":眼神交流,"face":表情自然,"dress":着装得体,"tip":"一句话改进建议"}' },
+        { type: 'image_url', image_url: { url: imageDataUrl } },
+      ],
+    },
+  ];
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 45000);
+  let answer = '';
+  try {
+    for await (const chunk of cloud.llm.chat.completions.create({
+      model: modelUsed,
+      messages,
+      stream: true,
+      temperature: 0.3,
+      signal: controller.signal,
+    })) {
+      const delta = chunk.choices && chunk.choices[0] && chunk.choices[0].delta;
+      if (delta && delta.content) answer += delta.content;
+    }
+  } catch (e) {
+    // 完整序列化错误对象
+    let errStr = '';
+    try { errStr = JSON.stringify(e, Object.getOwnPropertyNames(e)); } catch (_) { errStr = String(e); }
+    console.warn('[表情分析] 完整错误对象：', errStr);
+    return { error: '调用失败：' + (e?.message || e) + ' | 详情：' + errStr.slice(0, 300) };
+  } finally {
+    clearTimeout(timer);
+  }
+  // 解析 JSON
+  try {
+    const start = answer.indexOf('{');
+    const end = answer.lastIndexOf('}');
+    if (start < 0 || end < 0) {
+      return { error: '模型未返回 JSON，返回内容：' + answer.slice(0, 200) };
+    }
+    const parsed = JSON.parse(answer.slice(start, end + 1));
+    return {
+      eye: clamp(Math.round(Number(parsed.eye) || 5), 1, 10),
+      face: clamp(Math.round(Number(parsed.face) || 5), 1, 10),
+      dress: clamp(Math.round(Number(parsed.dress) || 5), 1, 10),
+      tip: parsed.tip || '',
+    };
+  } catch (e) {
+    return { error: 'JSON 解析失败：' + (e?.message || e) + '，内容：' + answer.slice(0, 200) };
+  }
+}
+
+// 获取当前 URL 的 sharecode（平台分享链接需要带此参数才能访问）
+function getShareCode() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('sharecode') || '';
+}
+
+async function apiCall(path, body) {
+  const sharecode = getShareCode();
+  // 构造带 sharecode 的完整 URL（避免相对路径丢失查询参数）
+  const url = API_BASE + path + (sharecode ? (path.includes('?') ? '&' : '?') + 'sharecode=' + sharecode : '');
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.detail || `请求失败 (${resp.status})`);
+  }
+  return resp.json();
+}
+
+/* ============ 简历文件上传 ============ */
+async function handleResumeUpload(file) {
+  if (!file) return;
+  const name = file.name.toLowerCase();
+  // 图片文件：走视觉模型 OCR
+  if (name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.webp') || name.endsWith('.bmp')) {
+    await handleImageOCR(file);
+    return;
+  }
+  // 文档文件：走后端解析
+  const okExt = name.endsWith('.pdf') || name.endsWith('.docx') || name.endsWith('.doc') || name.endsWith('.txt') || name.endsWith('.md');
+  if (!okExt) {
+    showFileStatus('不支持的文件格式，请上传 PDF / Word / 纯文本，或扫描件图片', true);
+    return;
+  }
+  showFileStatus('解析中…');
+  const sharecode = getShareCode();
+  const url = API_BASE + '/api/resume/upload' + (sharecode ? '?sharecode=' + sharecode : '');
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const resp = await fetch(url, { method: 'POST', body: formData });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || `上传失败 (${resp.status})`);
+    }
+    const data = await resp.json();
+    if (!data.text || !data.text.trim()) {
+      // 无文字层，可能是扫描件，引导走 OCR
+      showFileStatus('该文件可能是扫描件（无文字层）。请将扫描件拍照/截图后，直接上传图片进行识别。', true);
+      return;
+    }
+    $('resumeText').value = data.text;
+    showFileStatus(`✅ 已解析「${data.filename}」，共 ${data.length} 字`);
+  } catch (e) {
+    showFileStatus('上传失败：' + e.message, true);
+  }
+}
+
+// 图片 OCR：读图片 → 视觉模型识别 → 填入文本框
+async function handleImageOCR(file) {
+  showFileStatus('识别中（调用视觉模型）…');
+  try {
+    const dataUrl = await fileToDataUrl(file);
+    const text = await ocrImage(dataUrl, file.type);
+    if (!text || !text.trim()) {
+      showFileStatus('识别失败：未能从图片中提取文字', true);
+      return;
+    }
+    $('resumeText').value = text.trim();
+    showFileStatus(`✅ 图片识别完成，共 ${text.trim().length} 字`);
+  } catch (e) {
+    showFileStatus('图片识别失败：' + e.message, true);
+  }
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('文件读取失败'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function showFileStatus(msg, isError) {
+  const el = $('fileStatus');
+  el.textContent = msg;
+  el.classList.toggle('error', !!isError);
+  el.classList.add('show');
+}
+
+/* ============ 简历评分 ============ */
+async function handleResumeScore() {
+  const company = $('resumeCompany').value.trim();
+  const role = $('resumeRole').value.trim();
+  const text = $('resumeText').value.trim();
+  if (!text) { alert('请先上传或粘贴简历内容'); return; }
+  $('resumeBtn').disabled = true;
+  $('resumeBtn').textContent = '评估中…';
+  // 实时计时显示（让等待可感知）
+  const startTime = Date.now();
+  const timer = setInterval(() => {
+    const secs = Math.floor((Date.now() - startTime) / 1000);
+    $('resumeBtn').textContent = `评估中… ${secs}s`;
+  }, 1000);
+  try {
+    let data = null;
+    // 优先用大模型语义评分
+    if (cloud && llmModelId) {
+      data = await llmScoreResume(text, role, company);
+    }
+    // 降级：后端规则算法
+    if (!data) {
+      data = await apiCall('/api/resume/score', {
+        resume_text: text, target_company: company, target_role: role
+      });
+      data.method = 'rule';
+    }
+    clearInterval(timer);
+    renderResumeResult(data);
+    setStatus(data.method === 'ai' ? 'AI 智能评分完成' : '评分完成（规则）', 'var(--ok)');
+  } catch (e) {
+    clearInterval(timer);
+    alert('评估失败：' + e.message);
+    setStatus('就绪', 'var(--ok)');
+  } finally {
+    $('resumeBtn').disabled = false;
+    $('resumeBtn').textContent = '评估简历匹配度';
+  }
+}
+
+// 用大模型做简历语义评分，返回与后端规则算法对齐的结构
+async function llmScoreResume(resumeText, role, company) {
+  const systemPrompt = '你是资深招聘专家。根据简历与目标岗位，输出 JSON 评估。只输出 JSON，不要任何解释。';
+  // 简历文本截断（保留前 2500 字，减少输入以加速）
+  const trimmed = resumeText.length > 2500 ? resumeText.slice(0, 2500) : resumeText;
+  const userPrompt = `岗位：${role || '未指定'}，公司：${company || '未指定'}\n简历：${trimmed}\n\n输出 JSON（tech/project/education/logic 为 1-10 整数，match_pct 为 0-100 整数）：\n{"match_pct":整数,"scores":{"tech":整数,"project":整数,"education":整数,"logic":整数},"conclusion":"一句话","hit_skills":["技能"],"suggestions":["建议1","建议2"]}`;
+
+  try {
+    const raw = await callLLM(systemPrompt, userPrompt, 180000); // 180 秒超时（模型服务较慢）
+    if (!raw) return null;
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start < 0 || end < 0) return null;
+    const parsed = JSON.parse(raw.slice(start, end + 1));
+    // 归一化
+    const scores = {
+      tech: clamp(Math.round(Number(parsed.scores?.tech) || 5), 1, 10),
+      project: clamp(Math.round(Number(parsed.scores?.project) || 5), 1, 10),
+      education: clamp(Math.round(Number(parsed.scores?.education) || 5), 1, 10),
+      logic: clamp(Math.round(Number(parsed.scores?.logic) || 5), 1, 10),
+    };
+    return {
+      method: 'ai',
+      match_pct: clamp(Math.round(Number(parsed.match_pct) || 50), 0, 100),
+      scores,
+      conclusion: parsed.conclusion || '匹配度评估完成',
+      hit_skills: Array.isArray(parsed.hit_skills) ? parsed.hit_skills : [],
+      suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : [],
+    };
+  } catch (e) {
+    console.warn('大模型简历评分失败，降级为规则算法', e);
+    return null;
+  }
+}
+
+function renderResumeResult(data) {
+  // 评分方式标签
+  const methodTag = data.method === 'ai'
+    ? '<span class="skill-tag" style="background:var(--ok-soft);color:var(--ok);border-color:#cfe2d6;">AI 智能评分</span>'
+    : '<span class="skill-tag" style="background:var(--warn-soft);color:var(--warn);border-color:#e6d8b8;">规则评分</span>';
+  $('matchPct').innerHTML = data.match_pct + '%';
+  // 在匹配度下方显示评分方式
+  const matchBox = document.querySelector('.match-big .lbl');
+  if (matchBox) matchBox.innerHTML = '岗位匹配度 ' + methodTag;
+  // 分数条（动态展示所有返回的评分维度）
+  const scoreMap = [
+    { key: 'tech', label: '技术栈匹配', val: data.scores.tech },
+    { key: 'project', label: '项目经验', val: data.scores.project },
+    { key: 'education', label: '教育背景', val: data.scores.education },
+  ];
+  if (data.scores.logic !== undefined) {
+    scoreMap.push({ key: 'logic', label: '表达与条理', val: data.scores.logic });
+  }
+  $('resumeScores').innerHTML = scoreMap.filter(s => s.val !== undefined).map(s => `
+    <div class="score-item"><span class="label">${s.label}</span>
+    <div class="score-bar"><div class="fill" style="width:${s.val * 10}%"></div></div>
+    <span class="val">${s.val}/10</span></div>`).join('');
+  // 结论
+  $('resumeConclusion').innerHTML = `<div class="conclusion"><div class="txt" style="font-size:14px;color:var(--text);">${data.conclusion}</div></div>`;
+  // 命中技能
+  const skills = data.hit_skills || [];
+  $('skillTags').innerHTML = skills.length
+    ? skills.map(s => `<span class="skill-tag">${s}</span>`).join('')
+    : '<span style="font-size:13px;color:var(--text-dim);">未识别到明显技能关键词</span>';
+  // 建议
+  const suggestions = data.suggestions || [];
+  $('resumeSuggestions').innerHTML = suggestions.map(s => `<div class="sugg-item">${s}</div>`).join('');
+  // 显示事实清单区块（诊断完成后可生成）
+  const factWrap = $('factSheetWrap');
+  if (factWrap) { factWrap.style.display = ''; $('factSheetBody').innerHTML = '点击上方按钮，AI 将从你的简历中抽取结构化事实清单。'; $('factSheetBtn').disabled = false; $('factSheetBtn').textContent = '生成事实清单'; }
+  $('resumeResult').classList.add('show');
+  $('resumeResult').scrollIntoView({ behavior: 'smooth' });
+}
+
+/* ============ 事实清单（简历→面试的桥梁） ============ */
+let factSheet = []; // 六字段事实清单：{id, stmt, result, role, evidence, followups[]}
+
+async function handleGenerateFactSheet() {
+  const text = $('resumeText').value.trim();
+  if (!text) { alert('请先上传或粘贴简历内容'); return; }
+  const btn = $('factSheetBtn');
+  btn.disabled = true;
+  btn.textContent = '抽取中…';
+  const startTime = Date.now();
+  const timer = setInterval(() => {
+    const secs = Math.floor((Date.now() - startTime) / 1000);
+    btn.textContent = `抽取中… ${secs}s`;
+  }, 1000);
+  try {
+    let items = null;
+    if (!cloud || !llmModelId) {
+      $('factSheetBody').innerHTML = '<span style="color:var(--bad);">大模型尚未就绪，请稍候刷新重试。</span>';
+      return;
+    }
+    items = await llmGenerateFactSheet(text);
+    if (!items || !items.length) {
+      const raw = window.__factRaw || '';
+      const diag = raw ? `<div style="margin-top:8px;font-size:11px;color:var(--text-dim);word-break:break-all;max-height:120px;overflow:auto;background:var(--panel-2);padding:8px;border-radius:6px;">模型原始返回（诊断用）：${escHtml(raw.slice(0, 500))}</div>` : '';
+      $('factSheetBody').innerHTML = '<span style="color:var(--bad);">事实清单生成失败，请重试。</span>' + diag;
+      return;
+    }
+    factSheet = items;
+    renderFactSheet();
+  } catch (e) {
+    $('factSheetBody').innerHTML = '<span style="color:var(--bad);">生成失败：' + (e?.message || e) + '</span>';
+  } finally {
+    clearInterval(timer);
+    btn.disabled = false;
+    btn.textContent = '重新生成';
+  }
+}
+
+// 用大模型抽取六字段事实清单
+async function llmGenerateFactSheet(resumeText) {
+  const systemPrompt = '你是简历结构化专家。从简历中抽取可验证的事实经历，输出 JSON 数组。只输出 JSON 数组，不要任何解释、不要 markdown 代码块。';
+  const trimmed = resumeText.length > 3000 ? resumeText.slice(0, 3000) : resumeText;
+  const userPrompt = `简历：\n${trimmed}\n\n请从简历中抽取项目/实习/竞赛等真实经历，输出事实清单 JSON 数组（用方括号 [] 包裹）。每条格式：\n{"stmt":"事实句（在哪做了什么、用什么方法，不含形容词）","result":"结果（带数字或可验证；若简历没写数字则用空字符串）","role":"角色（主导/参与/协助/独立 四选一；若简历没写则用空字符串）","followups":["追问1","追问2"]}\n\n硬性要求：① 直接输出 JSON 数组本身，不要用 \`\`\` 包裹；② 事实句禁止形容词；③ result 没有数字就空字符串，禁止编造；④ 抽 3-8 条。`;
+  try {
+    const raw = await callLLM(systemPrompt, userPrompt, 120000);
+    if (!raw) return null;
+    // 解析：去掉 markdown 代码块标记
+    let jsonStr = raw.trim();
+    jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    // 找数组边界
+    let start = jsonStr.indexOf('[');
+    let end = jsonStr.lastIndexOf(']');
+    // 兜底：如果模型返回了对象包裹（如 {"facts":[...]}），取对象里的第一个数组
+    if (start < 0 || end < 0) {
+      const m = jsonStr.match(/\[[\s\S]*\]/);
+      if (m) { start = m.index; end = m.index + m[0].length - 1; }
+    }
+    if (start < 0 || end < 0) {
+      console.warn('事实清单解析失败：未找到数组，原始返回=', raw.slice(0, 300));
+      window.__factRaw = raw;
+      return null;
+    }
+    const arr = JSON.parse(jsonStr.slice(start, end + 1));
+    if (!Array.isArray(arr)) {
+      console.warn('事实清单解析失败：不是数组', typeof arr);
+      window.__factRaw = raw;
+      return null;
+    }
+    // 归一化，补齐六字段
+    return arr.map((item, i) => {
+      const stmt = normStr(item.stmt || item['事实句'] || '');
+      const result = normStr(item.result || item['结果'] || '');
+      const role = normStr(item.role || item['角色'] || '');
+      const followups = normStrList(item.followups || item['追问链'] || item['追问']);
+      // 证据强度判定：结果有数字 + 角色明确 = 强；结果有数字或角色明确 = 中；否则 = 虚
+      const hasNum = /\d/.test(result);
+      const roleValid = ['主导', '参与', '协助', '独立'].includes(role);
+      let evidence = '虚';
+      if (hasNum && roleValid) evidence = '强';
+      else if (hasNum || roleValid) evidence = '中';
+      return {
+        id: 'E' + (i + 1),
+        stmt: stmt,
+        result: result,
+        role: role,
+        evidence: evidence,
+        followups: followups,
+      };
+    }).filter(f => f.stmt);
+  } catch (e) {
+    console.warn('事实清单生成失败', e);
+    return null;
+  }
+}
+
+// 渲染事实清单表格
+function renderFactSheet() {
+  const body = $('factSheetBody');
+  if (!factSheet.length) {
+    body.innerHTML = '无事实清单';
+    return;
+  }
+  const rows = factSheet.map(f => {
+    const resultCell = f.result
+      ? `<span class="fact-result">${escHtml(f.result)}</span>`
+      : `<span class="fact-result pending">【待核实】</span>`;
+    const roleCell = `<select class="role-sel" data-id="${f.id}" onchange="updateFactRole(this)">
+      ${['主导', '参与', '协助', '独立'].map(r => `<option value="${r}" ${f.role === r ? 'selected' : ''}>${r}</option>`).join('')}
+      ${!['主导', '参与', '协助', '独立'].includes(f.role) ? `<option value="" selected>未确认</option>` : ''}
+    </select>`;
+    const eviMap = { '强': 'strong', '中': 'mid', '虚': 'weak' };
+    const eviBadge = `<span class="fact-badge ${eviMap[f.evidence] || 'weak'}">${f.evidence}</span>`;
+    const followups = f.followups?.length
+      ? `<div class="fact-follow">追问：${f.followups.map(escHtml).join(' / ')}</div>`
+      : '';
+    return `<tr>
+      <td class="fact-id">${f.id}</td>
+      <td class="fact-stmt">${escHtml(f.stmt)}</td>
+      <td>${resultCell}</td>
+      <td>${roleCell}</td>
+      <td>${eviBadge}</td>
+      <td>${followups}</td>
+    </tr>`;
+  }).join('');
+  body.innerHTML = `
+    <div style="overflow-x:auto;">
+      <table class="fact-sheet">
+        <thead><tr><th>编号</th><th>事实句</th><th>结果</th><th>角色</th><th>证据强度</th><th>追问链</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <div style="font-size:12px;color:var(--text-dim);margin-top:8px;">提示：可就地修改「角色」，结果缺失处请补充量化数据，再进入面试。</div>`;
+}
+
+// 修改角色后，重新判定证据强度
+function updateFactRole(sel) {
+  const id = sel.dataset.id;
+  const f = factSheet.find(x => x.id === id);
+  if (!f) return;
+  f.role = sel.value;
+  const hasNum = /\d/.test(f.result);
+  const roleValid = ['主导', '参与', '协助', '独立'].includes(f.role);
+  if (hasNum && roleValid) f.evidence = '强';
+  else if (hasNum || roleValid) f.evidence = '中';
+  else f.evidence = '虚';
+  // 只更新该行的证据强度徽标，避免整表重绘丢失编辑中的值
+  renderFactSheet();
+}
+
+function escHtml(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/* ============ AI 简历优化（生成 Word） ============ */
+async function handleOptimizeResume() {
+  const text = $('resumeText').value.trim();
+  const role = $('resumeRole').value.trim();
+  if (!text) { alert('请先上传或粘贴简历内容'); return; }
+  const btn = $('optimizeResumeBtn');
+  btn.disabled = true;
+  btn.textContent = 'AI 优化中…';
+  const startTime = Date.now();
+  const timer = setInterval(() => {
+    const secs = Math.floor((Date.now() - startTime) / 1000);
+    btn.textContent = `AI 优化中… ${secs}s`;
+  }, 1000);
+  try {
+    // 用大模型生成结构化优化简历
+    let structured = null;
+    if (cloud && llmModelId) {
+      structured = await llmOptimizeResume(text, role);
+    }
+    if (!structured) {
+      alert('AI 优化失败，请稍后重试');
+      return;
+    }
+    // 事实增量校验：检测优化结果里是否出现了原文没有的数字（红线兜底）
+    const drift = detectFactDrift(text, structured);
+    if (drift.length) {
+      console.warn('[事实校验] 检测到疑似新增事实（数字）：', drift);
+    }
+    // 调用后端生成 Word 并下载
+    const sharecode = getShareCode();
+    const url = API_BASE + '/api/resume/optimize' + (sharecode ? '?sharecode=' + sharecode : '');
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(structured),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || '生成 Word 失败');
+    }
+    const blob = await resp.blob();
+    downloadBlob(blob, '优化简历.docx');
+    setStatus('简历已导出', 'var(--ok)');
+  } catch (e) {
+    alert('简历优化失败：' + (e.message || e));
+    setStatus('就绪', 'var(--ok)');
+  } finally {
+    clearInterval(timer);
+    btn.disabled = false;
+    btn.textContent = 'AI 优化简历（导出 Word）';
+  }
+}
+
+// 把任意值安全地转成字符串（处理大模型返回的对象/数组元素）
+function normStr(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'string') return v.trim();
+  if (typeof v === 'number') return String(v);
+  if (Array.isArray(v)) return v.map(normStr).filter(Boolean).join('；');
+  if (typeof v === 'object') {
+    // 对象：拼接非空字段值（如 {company, role, desc} → "公司 · 岗位：描述"）
+    const parts = Object.values(v).map(normStr).filter(Boolean);
+    return parts.join(' · ');
+  }
+  return String(v);
+}
+
+// 把数组安全地转成字符串列表（每项都是可读字符串）
+function normStrList(v) {
+  if (!Array.isArray(v)) return [];
+  return v.map(normStr).filter(s => s && s.length > 0);
+}
+
+// 用大模型生成结构化优化简历
+async function llmOptimizeResume(resumeText, role) {
+  const systemPrompt = '你是资深简历优化专家。根据候选人的原始简历和目标岗位，输出一份优化后的结构化简历。只输出 JSON，不要任何解释。';
+  const trimmed = resumeText.length > 3000 ? resumeText.slice(0, 3000) : resumeText;
+  const userPrompt = `目标岗位：${role || '未指定'}\n原始简历：\n${trimmed}\n\n请将简历优化重写为结构化 JSON，突出量化成果和与目标岗位相关的技能。格式：\n{"name":"姓名","target_role":"求职意向","contact":"联系方式","education":["教育背景条目"],"experiences":["工作/实习经历条目"],"projects":["项目经验条目"],"skills":["技能条目"],"self_eval":"自我评价"}\n\n硬性要求（红线）：\n① 每个数组字段的元素都必须是字符串（不要用对象）；\n② 每条经历用 STAR 或"职责+量化成果"写法；\n③ 用词专业；\n④ 若原始简历缺某项，用空字符串或空数组；\n⑤ 【事实增量为零】禁止新增原始简历里不存在的数字、百分比、公司名、时间、技术名词——只能对已有事实做措辞优化，不能"脑补"数据。若原文没有量化数据，就保留原文的定性描述，不要编造数字。`;
+  try {
+    const raw = await callLLM(systemPrompt, userPrompt, 120000);
+    if (!raw) return null;
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start < 0 || end < 0) return null;
+    const parsed = JSON.parse(raw.slice(start, end + 1));
+    return {
+      name: normStr(parsed.name),
+      target_role: normStr(parsed.target_role) || role || '',
+      contact: normStr(parsed.contact),
+      education: normStrList(parsed.education),
+      experiences: normStrList(parsed.experiences),
+      projects: normStrList(parsed.projects),
+      skills: normStrList(parsed.skills),
+      self_eval: normStr(parsed.self_eval),
+    };
+  } catch (e) {
+    console.warn('大模型简历优化失败', e);
+    return null;
+  }
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// 事实增量校验：提取优化结果里的数字，检查是否在原文出现过（红线兜底）
+function detectFactDrift(originalText, structured) {
+  // 拼接结构化简历的所有文字
+  const allText = [
+    structured.name, structured.target_role, structured.contact, structured.self_eval,
+    ...(structured.education || []),
+    ...(structured.experiences || []),
+    ...(structured.projects || []),
+    ...(structured.skills || []),
+  ].join(' ');
+  // 提取优化结果里的所有数字（含百分比、小数）
+  const nums = allText.match(/\d+(?:\.\d+)?%?/g) || [];
+  // 检查每个数字是否出现在原文
+  const drift = nums.filter(n => !originalText.includes(n));
+  // 去重
+  return [...new Set(drift)];
+}
+
+/* ============ 初始化界面 ============ */
+function renderRoles() {
+  const g = $('roleGrid');
+  g.innerHTML = '';
+  Object.entries(ROLES).forEach(([key, r]) => {
+    const d = document.createElement('div');
+    d.className = 'role-card';
+    d.innerHTML = `<div class="icon">${r.icon}</div><div class="name">${r.name}</div><div class="desc">${r.desc}</div>`;
+    d.onclick = () => { document.querySelectorAll('.role-card').forEach(x => x.classList.remove('active')); d.classList.add('active'); state.role = key; updateStart(); };
+    g.appendChild(d);
+  });
+}
+
+function renderBg() {
+  const row = $('bgRow');
+  const bgs = ['应届生', '1-3 年经验', '3 年以上经验'];
+  row.innerHTML = '';
+  bgs.forEach(bg => {
+    const c = document.createElement('div');
+    c.className = 'bg-chip'; c.textContent = bg;
+    c.onclick = () => { document.querySelectorAll('.bg-chip').forEach(x => x.classList.remove('active')); c.classList.add('active'); state.background = bg; updateStart(); };
+    row.appendChild(c);
+  });
+}
+
+function renderScenes() {
+  const row = $('sceneRow');
+  row.innerHTML = '';
+  SCENES.forEach(sc => {
+    const c = document.createElement('div');
+    c.className = 'scene-card';
+    c.innerHTML = `<div class="scene-name">${sc.icon} ${sc.name}</div><div class="scene-desc">${sc.desc}</div>`;
+    c.onclick = () => { document.querySelectorAll('.scene-card').forEach(x => x.classList.remove('active')); c.classList.add('active'); state.scene = sc.key; updateStart(); };
+    row.appendChild(c);
+  });
+}
+
+function updateStart() {
+  $('startBtn').disabled = !(state.role && state.background && state.scene);
+}
+
+function renderDemos() {
+  const list = $('demoList');
+  list.innerHTML = '';
+  DEMOS.forEach(d => {
+    const item = document.createElement('div');
+    item.className = 'demo-item';
+    item.innerHTML = `<div class="demo-label">${d.label}</div>${d.text}`;
+    item.onclick = () => { showStage('setup'); $('inputBox').value = d.text; };
+    list.appendChild(item);
+  });
+}
+
+/* ============ 阶段切换 ============ */
+function showStage(name) {
+  ['resume', 'setup', 'interview', 'report', 'demo'].forEach(s => $(`stage-${s}`).style.display = s === name ? '' : 'none');
+  state.phase = name;
+  // 更新流程导航高亮
+  const navMap = { resume: 'resume', setup: 'setup', interview: 'interview', report: 'report' };
+  const active = navMap[name];
+  if (active) {
+    document.querySelectorAll('.flow-step').forEach(el => el.classList.toggle('active', el.dataset.stage === active));
+  }
+}
+
+function gotoStage(name) {
+  if (name === 'interview' && state.phase !== 'interview' && (!state.role || !state.background)) {
+    showStage('setup');
+    return;
+  }
+  showStage(name);
+}
+
+/* ============ 面试流程 ============ */
+// 从云数据库知识库读取题目（按岗位）
+async function fetchQuestionsFromKB(roleKey) {
+  if (!cloud) return null;
+  try {
+    const { data, error } = await cloud.database
+      .from('interview_questions')
+      .select('id, role, difficulty, category, question, answer_points, followups')
+      .eq('role', roleKey);
+    if (error) {
+      console.warn('[知识库] 读题失败：', error);
+      return null;
+    }
+    return data;
+  } catch (e) {
+    console.warn('[知识库] 读题异常：', e);
+    return null;
+  }
+}
+
+function buildQuestionList() {
+  const tech = ROLES[state.role].bank.slice();
+  const beh = BEHAVIORAL.slice();
+  // 简单排序：技术题 + 穿插行为题
+  const qs = [];
+  const techCount = 5, behCount = 3;
+  for (let i = 0; i < techCount; i++) qs.push({ text: tech[i % tech.length], type: 'tech' });
+  for (let i = 0; i < behCount; i++) qs.push({ text: beh[i % beh.length], type: 'behavior' });
+  // 洗牌
+  for (let i = qs.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [qs[i], qs[j]] = [qs[j], qs[i]]; }
+  return qs;
+}
+
+// 从知识库题目构造问题列表（含难度递增排序 + 行为题穿插）
+function buildQuestionsFromKB(techRows, behRows) {
+  const qs = [];
+  // 技术题按难度递增排序（先易后难）
+  const tech = (techRows || []).slice().sort((a, b) => a.difficulty - b.difficulty);
+  const beh = (behRows || []).slice();
+  // 取 5 道技术题 + 3 道行为题
+  const techSel = tech.slice(0, 5);
+  const behSel = beh.slice(0, 3);
+  techSel.forEach(t => qs.push({ text: t.question, type: 'tech', category: t.category, points: t.answer_points, followups: t.followups }));
+  behSel.forEach(b => qs.push({ text: b.question, type: 'behavior', category: b.category, points: b.answer_points }));
+  // 洗牌（保持技术题和行为题都出现）
+  for (let i = qs.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [qs[i], qs[j]] = [qs[j], qs[i]]; }
+  return qs;
+}
+
+async function startInterview() {
+  // 防重入：面试已在进行中则忽略重复触发
+  if (state._starting) return;
+  state._starting = true;
+  try {
+    state.qIndex = 0;
+    state.answers = [];
+    state.asked = [];
+    // 清空表情历史（新的一轮面试）
+    expressionHistory = { eye: [], face: [], dress: [] };
+    expressionFull = { eye: [], face: [], dress: [], tips: [] };
+    $('roleLabel').textContent = ROLES[state.role].name + ' · ' + state.background;
+    $('chatBody').innerHTML = '';
+    showStage('interview');
+    setStatus('面试准备中', 'var(--warn)');
+    // 进入面试阶段后再初始化 Live2D（此时 canvas 可见，尺寸正常），保存 Promise 供 speak 等待
+    if (!live2dReady) live2dPromise = initLive2D();
+
+    // 准备提示（随阶段更新，不触发语音）
+    const tipEl = document.createElement('div');
+    tipEl.className = 'msg interviewer preparing';
+    tipEl.innerHTML = `<div><div class="who">AI 面试官</div><div class="bubble">⏳ 正在准备面试，请稍候…</div></div>`;
+    $('chatBody').appendChild(tipEl);
+    const updateTip = (t) => { tipEl.querySelector('.bubble').textContent = t; };
+
+    // 优先从知识库读题（云数据库），失败降级到硬编码题库
+    let techRows = null, behRows = null;
+    const roleKey = state.role; // backend/frontend/algorithm
+    if (cloud) {
+      updateTip('⏳ 正在加载题库…');
+      techRows = await fetchQuestionsFromKB(roleKey);
+      behRows = await fetchQuestionsFromKB('behavior');
+    }
+    if (techRows && techRows.length) {
+      state.questions = buildQuestionsFromKB(techRows, behRows);
+    } else {
+      state.questions = buildQuestionList();
+    }
+
+    // 简历信息（用于生成针对性提问）
+    const resumeText = ($('resumeText')?.value || '').trim();
+
+    // 自动生成事实清单（若尚未生成且有简历文本）
+    if (cloud && llmModelId && !factSheet.length && resumeText) {
+      updateTip('⏳ 正在分析你的简历经历…');
+      const autoFacts = await llmGenerateFactSheet(resumeText);
+      if (autoFacts && autoFacts.length) {
+        factSheet = autoFacts;
+      }
+    }
+
+    // 提问策略：优先基于事实清单出题（简历为主）；无清单/失败则退回固定题库
+    if (cloud && llmModelId) {
+      updateTip('⏳ 正在生成针对性问题…');
+      const factQuestions = factSheet.length
+        ? await generateQuestionsFromFactSheet(roleKey)
+        : null;
+      if (factQuestions && factQuestions.length) {
+        // 事实清单生成的问题为主，固定题库补充到 8 题
+        state.questions = [...factQuestions, ...state.questions].slice(0, 8);
+      } else if (resumeText) {
+        // 降级：无事实清单但有简历，生成个性化首问
+        const personalized = await generatePersonalizedQuestion(resumeText, roleKey);
+        if (personalized) {
+          state.questions.unshift({ text: personalized, type: 'tech', personalized: true });
+        }
+      }
+    }
+
+    // 移除准备提示气泡
+    if (tipEl) tipEl.remove();
+    setStatus('面试中', 'var(--accent)');
+    const sceneName = (SCENES.find(s => s.key === state.scene)?.name) || '综合面';
+    addMsg('interviewer', `你好，我是你的 AI 面试官。今天为你进行一场「${ROLES[state.role].name}」岗位的${sceneName}模拟面试，共 ${state.questions.length} 个问题。让我们开始吧！`);
+    setTimeout(() => askNext(), 1800);
+  } finally {
+    state._starting = false;
+  }
+}
+
+// 获取当前场景描述（用于追问风格差异化）
+function getSceneStyle() {
+  const sc = SCENES.find(s => s.key === state.scene);
+  if (!sc) return '保持专业、平和的追问语气';
+  switch (sc.key) {
+    case 'professional': return '追问技术深度，要求候选人说出原理和细节';
+    case 'stress': return '质疑强度高，追问时施加压力、挑战候选人的说法，考察抗压能力';
+    default: return '保持专业、平和的追问语气';
+  }
+}
+
+// 基于事实清单生成针对性问题（锚定事实编号，覆盖所有经历）
+async function generateQuestionsFromFactSheet(roleKey) {
+  const roleName = ROLES[roleKey]?.name || roleKey;
+  // 优先排"结果待核实/证据弱"的条目（最需要深挖），强证据的排后
+  const weak = factSheet.filter(f => !f.result || f.evidence === '虚' || f.evidence === '中');
+  const strong = factSheet.filter(f => f.result && f.evidence === '强');
+  const targets = [...weak, ...strong];
+  if (!targets.length) return null;
+  const systemPrompt = '你是资深面试官。根据候选人的事实清单，为每条经历生成一个有深度的面试问题。只输出 JSON 数组。';
+  const factText = targets.map(f => `${f.id}｜${f.stmt}｜结果：${f.result || '待核实'}｜角色：${f.role || '未确认'}`).join('\n');
+  const userPrompt = `岗位：${roleName}\n候选人的事实清单（每条经历都要提问）：\n${factText}\n\n请为【每一条】经历各生成一个面试问题，输出 JSON 数组：\n[{"fact_id":"E1","question":"问题内容"}]\n要求：① 每条经历都必须有对应问题，不要遗漏；② 问题要针对该条经历的具体内容深挖；③ 对"结果待核实"的条目，追问其量化结果；④ 只输出 JSON。`;
+  try {
+    const raw = await callLLM(systemPrompt, userPrompt, 40000);
+    if (!raw) return null;
+    const start = raw.indexOf('[');
+    const end = raw.lastIndexOf(']');
+    if (start < 0 || end < 0) return null;
+    const arr = JSON.parse(raw.slice(start, end + 1));
+    if (!Array.isArray(arr)) return null;
+    return arr.map(q => ({
+      text: q.question || '',
+      type: 'tech',
+      personalized: true,
+      fact_id: q.fact_id || '',
+    })).filter(q => q.text);
+  } catch (e) {
+    console.warn('基于事实清单生成问题失败', e);
+    return null;
+  }
+}
+
+// 结合简历生成针对性开场问题（大模型）—— 降级方案
+async function generatePersonalizedQuestion(resumeText, roleKey) {
+  const roleName = ROLES[roleKey]?.name || roleKey;
+  const systemPrompt = '你是资深面试官。根据候选人简历，生成一个针对性的、有深度的面试问题。只输出问题本身，不要解释。';
+  const trimmed = resumeText.length > 2000 ? resumeText.slice(0, 2000) : resumeText;
+  const userPrompt = `岗位：${roleName}\n候选人简历：\n${trimmed}\n\n请基于简历中的项目经历或技能栈，生成一个最值得追问的面试问题（体现对简历的深入理解）。只输出这一个问题。`;
+  try {
+    const q = await callLLM(systemPrompt, userPrompt, 20000);
+    if (q && q.trim()) return q.trim();
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function askNext() {
+  if (state.qIndex >= state.questions.length) { endInterview(); return; }
+  const q = state.questions[state.qIndex];
+  state.asked.push(q);
+  addMsg('interviewer', q.text);
+  state.qIndex++;
+}
+
+function addMsg(who, text) {
+  const body = $('chatBody');
+  const m = document.createElement('div');
+  m.className = 'msg ' + who;
+  m.innerHTML = `<div><div class="who">${who === 'interviewer' ? 'AI 面试官' : '候选人'}</div><div class="bubble"></div></div>`;
+  m.querySelector('.bubble').textContent = text;
+  body.appendChild(m);
+  body.scrollTop = body.scrollHeight;
+  // 只有面试官的消息才语音朗读（候选人的回答不朗读）
+  if (who === 'interviewer') speak(text);
+}
+
+function handleSend() {
+  const box = $('inputBox');
+  const text = box.value.trim();
+  if (!text) return;
+  box.value = '';
+  addMsg('candidate', text);
+  const lastQ = state.asked[state.asked.length - 1];
+  state.answers.push({ q: lastQ?.text || '', a: text, type: lastQ?.type || 'tech' });
+  // 面试官回应：追问（每个问题最多追一次）或进入下一题
+  setTimeout(async () => {
+    // 如果当前问题还没追问过，尝试追问；否则直接下一题
+    if (lastQ && !lastQ.followedUp) {
+      let followup = null;
+      // 优先用事实清单里该条经历的追问链（预设的下潜问法）
+      if (lastQ.fact_id) {
+        const fact = factSheet.find(f => f.id === lastQ.fact_id);
+        const chain = fact?.followups;
+        if (chain && chain.length) {
+          // 用第一条追问，并从链中移除（下次追问用下一条）
+          followup = chain[0];
+          fact.followups = chain.slice(1);
+        }
+      }
+      // 没有追问链则用大模型生成
+      if (!followup && cloud && llmModelId) {
+        followup = await generateFollowup(lastQ, text);
+      }
+      if (followup) {
+        lastQ.followedUp = true; // 标记已追问，避免无限循环
+        addMsg('interviewer', followup);
+        return; // 追问后等待候选人回答，不立即进入下一题
+      }
+    }
+    // 无追问（或已追问过）：进入下一题
+    const nextText = state.qIndex < state.questions.length ? '我们继续下一题。' : '';
+    if (nextText) {
+      addMsg('interviewer', nextText);
+      setTimeout(() => askNext(), 800);
+    } else {
+      askNext();
+    }
+  }, 400);
+}
+
+// 根据候选人回答，用大模型生成针对性追问或点评（感知面试场景）
+async function generateFollowup(question, answer) {
+  if (!question) return null;
+  const style = getSceneStyle();
+  const systemPrompt = '你是资深面试官。根据候选人的回答，给出一个简短、专业的追问或点评（20字以内），引导候选人深入。只输出这一句话。';
+  const userPrompt = `面试场景风格：${style}\n面试问题：${question.text}\n候选人回答：${answer}\n\n请针对这个回答，给出一句追问或点评（体现你听懂了他的回答，并引导他深入，风格符合上述面试场景）。`;
+  try {
+    const r = await callLLM(systemPrompt, userPrompt, 15000);
+    if (r && r.trim()) return r.trim();
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function endInterview() {
+  stopCamera(); // 停止摄像头与表情分析
+  setStatus('生成报告', 'var(--warn)');
+  addMsg('interviewer', '面试结束，我正在为你生成总结报告…');
+  setTimeout(generateReport, 800);
+}
+
+/* ============ 报告生成 ============ */
+async function generateReport() {
+  setStatus('AI 评分中…', 'var(--warn)');
+  // 优先用大模型做整体语义评分
+  let llmResult = null;
+  if (cloud && llmModelId && state.answers.length) {
+    llmResult = await llmScoreAll();
+  }
+
+  let scores, conclusion, highlights = [], improvements = [], starDiagnoses = [];
+
+  if (llmResult) {
+    scores = llmResult.scores;
+    conclusion = llmResult.conclusion;
+    highlights = llmResult.highlights || [];
+    improvements = llmResult.improvements || [];
+    starDiagnoses = llmResult.star || [];
+  } else {
+    // 降级：本地规则评分
+    const dimScores = { tech: 0, logic: 0, project: 0, behavior: 0, fit: 0 };
+    for (const ans of state.answers) {
+      try {
+        const data = await apiCall('/api/interview/score', {
+          role: state.role, question: ans.q, answer: ans.a, q_type: ans.type
+        });
+        const overall = data.scores.overall || 5;
+        if (ans.type === 'behavior') { dimScores.behavior += overall; dimScores.logic += data.scores.structure || 5; }
+        else { dimScores.tech += data.scores.tech || overall; dimScores.project += data.scores.structure || overall; }
+      } catch (e) {
+        const fb = 5 + Math.random() * 4;
+        if (ans.type === 'behavior') { dimScores.behavior += fb; dimScores.logic += fb; }
+        else { dimScores.tech += fb; dimScores.project += fb; }
+      }
+    }
+    const techN = state.answers.filter(a => a.type === 'tech').length || 1;
+    const behN = state.answers.filter(a => a.type === 'behavior').length || 1;
+    scores = {
+      tech: clamp(Math.round(dimScores.tech / techN), 1, 10),
+      logic: clamp(Math.round(dimScores.logic / (state.answers.length || 1)), 1, 10),
+      project: clamp(Math.round(dimScores.project / techN), 1, 10),
+      behavior: clamp(Math.round(dimScores.behavior / behN), 1, 10),
+      fit: clamp(Math.round((dimScores.tech + dimScores.project + dimScores.behavior) / (state.answers.length || 1)), 1, 10)
+    };
+    // 本地 STAR 诊断
+    state.answers.filter(a => a.type === 'behavior').forEach(a => {
+      const stars = analyzeSTAR(a.a);
+      starDiagnoses.push({ q: a.q, star: stars });
+    });
+  }
+
+  // 加权总分（对齐 V1.7 A.2：各维分数×权重之和×10，四舍五入）
+  const total = Math.round(DIMENSIONS.reduce((sum, d) => sum + (scores[d.key] || 0) * d.weight, 0) * 10);
+  const fitPct = total; // 总分即 0-100
+  const level = matchLevel(total);
+
+  let html = '<div class="report-grid"><div><div class="score-list">';
+  DIMENSIONS.forEach(d => {
+    html += `<div class="score-item"><span class="label">${d.label}</span><div class="score-bar"><div class="fill" style="width:${scores[d.key] * 10}%"></div></div><span class="val">${scores[d.key]}/10</span></div>`;
+  });
+  html += '</div></div><div class="radar-box">' + drawRadar(scores) + '</div></div>';
+
+  // 匹配度结论（对齐 V1.7 A.2 四级）
+  const concl = conclusion || ({ '强烈推荐': '强烈推荐，具备较强竞争力', '推荐': '推荐，补齐短板后可冲刺', '有潜力': '有潜力，需重点提升核心短板', '建议调整目标': '建议调整目标岗位或系统准备' }[level] || level);
+  html += `<div class="conclusion"><div class="big">${fitPct}</div><div class="txt">总分：${level} · ${concl}</div></div>`;
+
+  // 亮点与待改进（大模型输出）
+  if (highlights.length || improvements.length) {
+    html += '<h2 style="margin-top:24px;"><span class="step-tag">评价</span>总体评价</h2>';
+    if (highlights.length) {
+      html += '<h3 style="font-size:13px;color:var(--ok);margin:8px 0;">亮点</h3>';
+      html += highlights.map(h => `<div class="sugg-item" style="color:var(--text);">${h}</div>`).join('');
+    }
+    if (improvements.length) {
+      html += '<h3 style="font-size:13px;color:var(--warn);margin:8px 0;">待改进</h3>';
+      html += improvements.map(h => `<div class="sugg-item">${h}</div>`).join('');
+    }
+  }
+
+  // STAR 诊断
+  if (starDiagnoses.length) {
+    html += '<h2 style="margin-top:24px;"><span class="step-tag">诊断</span>STAR 结构诊断</h2>';
+    starDiagnoses.forEach((d, i) => {
+      html += `<div class="diag-item"><div class="q">回答 ${i + 1}：${d.q}</div>`;
+      STAR_PARTS.forEach(p => {
+        const hit = d.star[p.key];
+        html += `<span class="tag ${hit ? 'hit' : 'miss'}">${hit ? '✓' : '✗'} ${p.key}</span>`;
+      });
+      const missing = STAR_PARTS.filter(p => !d.star[p.key]).map(p => p.key);
+      if (missing.length) html += `<div style="font-size:12px;color:var(--warn);margin-top:6px;">缺【${missing.join('、')}】要素，建议补充相应内容。</div>`;
+      html += '</div>';
+    });
+  }
+
+  // 表情/着装表现（真实面试模式产生的评分汇总）
+  if (expressionFull.eye.length > 0) {
+    const avgExpr = k => {
+      const arr = expressionFull[k];
+      return arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+    };
+    const eye = avgExpr('eye'), face = avgExpr('face'), dress = avgExpr('dress');
+    const exprTotal = Math.round((eye + face + dress) / 3);
+    html += '<h2 style="margin-top:24px;"><span class="step-tag">表现</span>面试形象与表情</h2>';
+    html += `<div class="score-list">`;
+    html += `<div class="score-item"><span class="label">眼神交流</span><div class="score-bar"><div class="fill" style="width:${eye * 10}%"></div></div><span class="val">${eye}/10</span></div>`;
+    html += `<div class="score-item"><span class="label">表情自然</span><div class="score-bar"><div class="fill" style="width:${face * 10}%"></div></div><span class="val">${face}/10</span></div>`;
+    html += `<div class="score-item"><span class="label">着装得体</span><div class="score-bar"><div class="fill" style="width:${dress * 10}%"></div></div><span class="val">${dress}/10</span></div>`;
+    html += `</div>`;
+    html += `<div style="font-size:13px;color:var(--text-dim);margin-top:8px;">综合形象评分：<b style="color:var(--accent);">${exprTotal}/10</b>（基于 ${expressionFull.eye.length} 次画面分析）</div>`;
+    // 汇总建议（取最近一条 tip）
+    if (expressionFull.tips.length) {
+      const lastTip = expressionFull.tips[expressionFull.tips.length - 1];
+      html += `<div class="sugg-item" style="margin-top:6px;">形象建议：${lastTip}</div>`;
+    }
+  }
+
+  // 构造结构化报告数据（对齐 V1.7 A.1 字段，供导出用）
+  state.reportData = {
+    report_id: 'R-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + String(Math.floor(Math.random() * 1000)).padStart(3, '0'),
+    resume_version: 'V1',
+    target_role: ROLES[state.role]?.name || state.role,
+    scene: (SCENES.find(s => s.key === state.scene)?.name) || '综合面',
+    rounds: state.asked.length,
+    scores: {
+      tech_depth: scores.tech, logic: scores.logic, project: scores.project,
+      behavior: scores.behavior, fit: scores.fit,
+    },
+    total: total,
+    match_level: level,
+    per_question: starDiagnoses.map((d, i) => ({
+      qid: 'Q' + (i + 1), fact_id: '', question: d.q, intent: '', actual: '', gap: '', star: d.star || {},
+    })),
+    gaps: [],
+    resume_advice: improvements.join('；'),
+  };
+
+  // 导出按钮
+  html += `<div style="margin-top:24px; display:flex; gap:10px; flex-wrap:wrap;">
+    <button class="btn secondary" onclick="exportReportJSON()">导出报告 JSON</button>
+    <button class="btn secondary" onclick="exportReportHTML()">导出报告 HTML</button>
+  </div>`;
+
+  $('reportBody').innerHTML = html;
+  showStage('report');
+  setStatus('报告已生成', 'var(--ok)');
+}
+
+// 导出报告为 JSON（对齐 V1.7 A.1 字段结构）
+function exportReportJSON() {
+  if (!state.reportData) return;
+  const blob = new Blob([JSON.stringify(state.reportData, null, 2)], { type: 'application/json' });
+  downloadBlob(blob, `面试报告_${state.reportData.report_id}.json`);
+}
+
+// 导出报告为 HTML（含五维雷达图与分数条）
+function exportReportHTML() {
+  const d = state.reportData;
+  if (!d) return;
+  const scoresForRadar = { tech: d.scores.tech_depth, logic: d.scores.logic, project: d.scores.project, behavior: d.scores.behavior, fit: d.scores.fit };
+  const radarSvg = drawRadar(scoresForRadar);
+  const scoreBars = DIMENSIONS.map(dim => {
+    const v = { tech: d.scores.tech_depth, project: d.scores.project, logic: d.scores.logic, behavior: d.scores.behavior, fit: d.scores.fit }[dim.key];
+    return `<div style="display:flex;align-items:center;gap:10px;margin:8px 0;"><span style="width:84px;font-size:13px;color:#555;">${dim.label}</span><div style="flex:1;height:8px;background:#eee;border-radius:4px;overflow:hidden;"><div style="height:100%;width:${v * 10}%;background:#2b4c7e;border-radius:4px;"></div></div><span style="font-size:14px;font-weight:700;">${v}/10</span></div>`;
+  }).join('');
+  const htmlDoc = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>面试报告 · ${d.target_role}</title><style>
+    body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:760px;margin:40px auto;padding:0 20px;color:#2b2a27;line-height:1.6;}
+    h1{font-size:22px;margin-bottom:4px;} .meta{color:#8a857c;font-size:13px;margin-bottom:24px;}
+    .score{background:#f6f4f0;border-radius:8px;padding:20px;margin:16px 0;}
+    .total{font-size:40px;font-weight:700;color:#2b4c7e;} .level{color:#3e7c5b;font-weight:600;}
+    h2{font-size:16px;margin:24px 0 12px;border-left:3px solid #2b4c7e;padding-left:8px;}
+    .advice{background:#faf9f6;border:1px solid #e6e1d8;border-radius:8px;padding:14px;font-size:14px;}
+    .foot{text-align:center;color:#b0aba1;font-size:12px;margin-top:32px;}
+  </style></head><body>
+    <h1>模拟面试报告</h1>
+    <div class="meta">${d.target_role} · ${d.scene} · 共 ${d.rounds} 轮 · 报告编号 ${d.report_id}</div>
+    <div class="score">
+      <div class="total">${d.total}</div>
+      <div class="level">${d.match_level}</div>
+      <div style="margin-top:16px;">${scoreBars}</div>
+    </div>
+    <div style="display:flex;justify-content:center;">${radarSvg}</div>
+    <h2>改进建议</h2>
+    <div class="advice">${escHtml(d.resume_advice || '无')}</div>
+    <div class="foot">本报告由 AI 面试官生成 · 仅供训练参考</div>
+  </body></html>`;
+  const blob = new Blob([htmlDoc], { type: 'text/html' });
+  downloadBlob(blob, `面试报告_${d.report_id}.html`);
+}
+
+// 用大模型对全部回答做整体语义评分，返回结构化 JSON
+async function llmScoreAll() {
+  const roleName = ROLES[state.role]?.name || state.role;
+  const qaList = state.answers.map((a, i) => `【第${i + 1}题·${a.type === 'behavior' ? '行为面' : '技术面'}】\n问：${a.q}\n答：${a.a}`).join('\n\n');
+
+  const systemPrompt = '你是一位资深IT技术岗面试官。请根据候选人的回答，给出客观、专业、可量化的评分。只输出 JSON，不要输出任何其他文字。';
+  const userPrompt = `岗位：${roleName}\n\n候选人的面试问答记录：\n${qaList}\n\n请输出如下 JSON 格式（各维度 1-10 分，只输出 JSON）：\n{\n  "scores": {"tech": 技术深度, "logic": 表达逻辑, "project": 项目经验, "behavior": 行为素质, "fit": 岗位匹配度},\n  "conclusion": "一句话岗位匹配度结论",\n  "highlights": ["亮点1", "亮点2"],\n  "improvements": ["待改进1", "待改进2"],\n  "star": [{"q": "行为题问题", "star": {"S": true/false, "T": true/false, "A": true/false, "R": true/false}}]\n}\n其中 star 数组只包含行为面题目的 STAR 四要素诊断（S情境/T任务/A行动/R结果，true=有，false=缺）。`;
+
+  try {
+    const raw = await callLLM(systemPrompt, userPrompt);
+    if (!raw) return null;
+    // 提取 JSON（容错：截取第一个 { 到最后一个 }）
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start < 0 || end < 0) return null;
+    const jsonStr = raw.slice(start, end + 1);
+    const parsed = JSON.parse(jsonStr);
+    // 归一化 scores 为 1-10
+    const keys = ['tech', 'logic', 'project', 'behavior', 'fit'];
+    const scores = {};
+    keys.forEach(k => scores[k] = clamp(Math.round(Number(parsed.scores?.[k]) || 5), 1, 10));
+    return {
+      scores,
+      conclusion: parsed.conclusion || '',
+      highlights: Array.isArray(parsed.highlights) ? parsed.highlights : [],
+      improvements: Array.isArray(parsed.improvements) ? parsed.improvements : [],
+      star: Array.isArray(parsed.star) ? parsed.star : [],
+    };
+  } catch (e) {
+    console.warn('大模型评分解析失败，降级为规则评分', e);
+    return null;
+  }
+}
+
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+function analyzeSTAR(text) {
+  // MVP 启发式判断（真实版本接大模型做语义分析）
+  const r = { S: false, T: false, A: false, R: false };
+  const len = text.length;
+  if (len > 20) r.S = true;
+  if (/目标|任务|负责|需要|为了/.test(text)) r.T = true;
+  if (/我|开发|搭建|设计|实现|优化|主导|做了|采用/.test(text)) r.A = true;
+  if (/提升|降低|减少|增长|达到|%|\d+/.test(text)) r.R = true;
+  return r;
+}
+
+function drawRadar(scores) {
+  const labels = DIMENSIONS.map(d => d.label);
+  const vals = DIMENSIONS.map(d => scores[d.key] / 10);
+  const cx = 120, cy = 120, R = 85, n = labels.length;
+  let pts = [];
+  for (let i = 0; i < n; i++) {
+    const ang = -Math.PI / 2 + i * 2 * Math.PI / n;
+    pts.push([cx + R * vals[i] * Math.cos(ang), cy + R * vals[i] * Math.sin(ang)]);
+  }
+  // 网格
+  let grid = '';
+  for (let ring = 1; ring <= 5; ring++) {
+    const rr = R * ring / 5;
+    let gp = [];
+    for (let i = 0; i < n; i++) {
+      const ang = -Math.PI / 2 + i * 2 * Math.PI / n;
+      gp.push([cx + rr * Math.cos(ang), cy + rr * Math.sin(ang)]);
+    }
+    grid += `<polygon points="${gp.map(p => p.join(',')).join(' ')}" fill="none" stroke="#e6e1d8" stroke-width="1"/>`;
+  }
+  // 轴线
+  let axes = '';
+  labels.forEach((lb, i) => {
+    const ang = -Math.PI / 2 + i * 2 * Math.PI / n;
+    const ex = cx + R * Math.cos(ang), ey = cy + R * Math.sin(ang);
+    axes += `<line x1="${cx}" y1="${cy}" x2="${ex}" y2="${ey}" stroke="#e6e1d8" stroke-width="1"/>`;
+    const lx = cx + (R + 18) * Math.cos(ang), ly = cy + (R + 18) * Math.sin(ang);
+    axes += `<text x="${lx}" y="${ly}" fill="#8a857c" font-size="11" text-anchor="middle" dominant-baseline="middle">${lb}</text>`;
+  });
+  return `<svg width="240" height="240" viewBox="0 0 240 240">${grid}${axes}<polygon points="${pts.map(p => p.join(',')).join(' ')}" fill="rgba(43,76,126,.22)" stroke="#2b4c7e" stroke-width="2"/></svg>`;
+}
+
+/* ============ 语音（Web Speech API） ============ */
+let recognition = null;
+function initSpeech() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { $('micBtn').style.display = 'none'; return; }
+  recognition = new SR();
+  recognition.lang = 'zh-CN';
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.onresult = e => {
+    const text = e.results[0][0].transcript;
+    $('inputBox').value = text;
+    $('micBtn').classList.remove('recording');
+    setStatus('就绪', 'var(--ok)');
+  };
+  recognition.onerror = () => { $('micBtn').classList.remove('recording'); setStatus('就绪', 'var(--ok)'); };
+  recognition.onend = () => { $('micBtn').classList.remove('recording'); setStatus('就绪', 'var(--ok)'); };
+}
+function toggleMic() {
+  if (!recognition) return;
+  if ($('micBtn').classList.contains('recording')) {
+    recognition.stop();
+  } else {
+    recognition.start();
+    $('micBtn').classList.add('recording');
+    setStatus('录音中…', 'var(--bad)');
+  }
+}
+/* ============ Live2D 虚拟人 ============ */
+let live2dApp = null;
+let live2dModel = null;
+let live2dReady = false;
+let live2dLipTimer = null;
+let live2dPromise = null; // Live2D 初始化 Promise，供 speak 等待
+const HARU_MODEL_URL = 'https://cdn.jsdelivr.net/gh/Live2D/CubismWebSamples@master/Samples/Resources/Haru/Haru.model3.json';
+
+async function initLive2D() {
+  const statusEl = () => $('live2dStatus');
+  try {
+    // 依赖检查
+    if (typeof PIXI === 'undefined') {
+      console.warn('[Live2D] PIXI 未加载');
+      if (statusEl()) statusEl().textContent = '⚠️ Live2D 依赖未加载';
+      return;
+    }
+    if (!PIXI.live2d || !PIXI.live2d.Live2DModel) {
+      console.warn('[Live2D] PIXI.live2d.Live2DModel 不存在，实际 keys =', Object.keys(PIXI.live2d || {}));
+      if (statusEl()) statusEl().textContent = '⚠️ Live2D 组件缺失';
+      return;
+    }
+    const canvas = $('live2dCanvas');
+    if (!canvas) return;
+    if (statusEl()) statusEl().textContent = '加载虚拟人中…';
+    const W = 420, H = 420;
+    live2dApp = new PIXI.Application({
+      view: canvas,
+      autoStart: true,
+      width: W,
+      height: H,
+      backgroundAlpha: 0,
+    });
+    const model = await PIXI.live2d.Live2DModel.from(HARU_MODEL_URL, { autoInteract: false }); // 关闭鼠标眼神追踪
+    const mw = model.width, mh = model.height;
+    // 半身像：放大模型并下移，只保留头部到胸口（贴合线上面试场景）
+    const scale = Math.min(W / mw, H / mh) * 2.4;
+    model.scale.set(scale);
+    // anchor 指向头部（偏上），让上半身居中
+    model.anchor.set(0.5, 0.3);
+    model.x = W / 2;
+    model.y = H * 0.62;
+    live2dApp.stage.addChild(model);
+    live2dModel = model;
+    live2dReady = true;
+    if (statusEl()) statusEl().textContent = '';
+    // 口型初始化：兼容不同版本的 API（当前版本用 speak 音频驱动口型，无需手动初始化）
+    try {
+      if (typeof model.startLipSync === 'function') {
+        model.startLipSync();
+        model.setLipSyncValue(0);
+      }
+    } catch (lipErr) {
+      console.warn('[Live2D] 口型 API 不可用（不影响显示）', lipErr?.message || lipErr);
+    }
+  } catch (e) {
+    console.warn('[Live2D] 初始化失败：', e?.message || e);
+    if (statusEl()) statusEl().textContent = '⚠️ ' + (e?.message || 'Live2D 加载失败');
+    live2dReady = false;
+  }
+}
+
+// 让 Live2D 虚拟人开口说话（durationMs 时长内口型开合）
+// 动态查找口型参数，兼容不同模型和 API 版本
+function findMouthParam() {
+  try {
+    const core = live2dModel?.internalModel?.coreModel;
+    if (!core || !core.setParameterValueById) return null;
+    // 常见口型参数名
+    const candidates = ['ParamMouthOpenY', 'ParamMouthOpen', 'PARAM_MOUTH_OPEN_Y', 'ParamMouth'];
+    // 尝试从模型参数里动态查找含 "mouth" 的参数
+    const params = core._model?.getParameterIds?.() || [];
+    const mouthParam = params.find(p => /mouth/i.test(p));
+    if (mouthParam) return mouthParam;
+    // 兜底用第一个候选
+    for (const c of candidates) {
+      try {
+        core.setParameterValueById(c, 0);
+        return c;
+      } catch (e) { /* 尝试下一个 */ }
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function live2dSpeak(durationMs) {
+  if (!live2dReady || !live2dModel) return;
+  // 优先用 setLipSyncValue（lipsync 增强版）
+  if (typeof live2dModel.setLipSyncValue === 'function') {
+    let open = 0;
+    if (live2dLipTimer) clearInterval(live2dLipTimer);
+    live2dLipTimer = setInterval(() => {
+      open = open > 0.7 ? 0 : 0.8;
+      live2dModel.setLipSyncValue(open);
+    }, 120);
+    setTimeout(() => {
+      if (live2dLipTimer) { clearInterval(live2dLipTimer); live2dLipTimer = null; }
+      if (live2dModel) live2dModel.setLipSyncValue(0);
+    }, durationMs);
+    return;
+  }
+  // 降级：直接操作 Live2D 底层口型参数
+  const mouthParam = findMouthParam();
+  if (!mouthParam) return;
+  const core = live2dModel.internalModel.coreModel;
+  let open = 0;
+  if (live2dLipTimer) clearInterval(live2dLipTimer);
+  live2dLipTimer = setInterval(() => {
+    open = open > 0.7 ? 0 : 1;
+    try { core.setParameterValueById(mouthParam, open); } catch (e) {}
+  }, 100);
+  setTimeout(() => {
+    if (live2dLipTimer) { clearInterval(live2dLipTimer); live2dLipTimer = null; }
+    try { core.setParameterValueById(mouthParam, 0); } catch (e) {}
+  }, durationMs);
+}
+
+// 面试官说话：优先用 edge-tts + Live2D speak（口型同步），降级用浏览器 speechSynthesis
+// 用队列串行化，避免并发导致的语音丢失/重叠
+let speakQueue = Promise.resolve();
+
+function speak(text) {
+  speakQueue = speakQueue.then(() => doSpeak(text)).catch(() => doSpeak(text));
+  return speakQueue;
+}
+
+async function doSpeak(text) {
+  const avatar = $('virtualAvatar');
+  // 等待 Live2D 就绪（最多 8 秒），避免第一句话时 Live2D 未加载完就降级
+  if (!live2dReady && live2dPromise) {
+    try {
+      await Promise.race([
+        live2dPromise,
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+      ]);
+    } catch (e) {
+      console.warn('[TTS] 等待 Live2D 超时，降级浏览器语音', e);
+    }
+  }
+  // 优先：edge-tts 生成音频 + Live2D model.speak（口型同步 + 更好音色）
+  if (live2dReady && live2dModel && typeof live2dModel.speak === 'function') {
+    try {
+      const sharecode = getShareCode();
+      const url = API_BASE + '/api/tts' + (sharecode ? '?sharecode=' + sharecode : '');
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: text }),
+      });
+      if (resp.ok) {
+        const blob = await resp.blob();
+        const audioUrl = URL.createObjectURL(blob);
+        if (avatar) avatar.classList.add('speaking');
+        // 用 Promise 等待播放完成，确保队列串行
+        await new Promise((resolve) => {
+          live2dModel.speak(audioUrl, {
+            onFinish: () => {
+              if (avatar) avatar.classList.remove('speaking');
+              URL.revokeObjectURL(audioUrl);
+              resolve();
+            },
+            onError: () => {
+              if (avatar) avatar.classList.remove('speaking');
+              URL.revokeObjectURL(audioUrl);
+              resolve();
+            },
+          });
+        });
+        return;
+      }
+    } catch (e) {
+      console.warn('[TTS] edge-tts 调用失败，降级浏览器语音', e);
+    }
+  }
+  // 降级：浏览器 speechSynthesis
+  await browserSpeak(text, avatar);
+}
+
+function browserSpeak(text, avatar) {
+  return new Promise((resolve) => {
+    if (!window.speechSynthesis) { resolve(); return; }
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'zh-CN';
+    u.rate = 1.0;
+    const duration = Math.max(1500, Math.round(text.length / 4) * 1000);
+    const closeLip = () => {
+      if (live2dModel && typeof live2dModel.setLipSyncValue === 'function') {
+        live2dModel.setLipSyncValue(0);
+      }
+    };
+    u.onstart = () => {
+      if (avatar) avatar.classList.add('speaking');
+      live2dSpeak(duration);
+    };
+    u.onend = () => {
+      if (avatar) avatar.classList.remove('speaking');
+      closeLip();
+      resolve();
+    };
+    u.onerror = () => {
+      if (avatar) avatar.classList.remove('speaking');
+      closeLip();
+      resolve();
+    };
+    speechSynthesis.speak(u);
+  });
+}
+
+/* ============ 真实面试模式：摄像头 + 表情评分 ============ */
+let cameraStream = null;
+let captureTimer = null;
+let analyzing = false;
+let expressionHistory = { eye: [], face: [], dress: [] };
+let expressionFull = { eye: [], face: [], dress: [], tips: [] }; // 全量记录，用于报告汇总
+
+async function toggleCamera() {
+  const toggle = $('camToggle');
+  if (cameraStream) {
+    // 关闭摄像头
+    stopCamera();
+    return;
+  }
+  // 开启摄像头
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
+    const video = $('cameraVideo');
+    video.srcObject = cameraStream;
+    video.style.display = 'block';
+    $('camPlaceholder').style.display = 'none';
+    toggle.classList.add('on');
+    toggle.innerHTML = '<span class="live-dot on"></span> 关闭摄像头';
+    $('exprScores').style.display = 'flex';
+    $('exprTip').textContent = '正在分析你的表现…';
+    // 开始定时抽帧分析（每 3 秒一次）
+    captureTimer = setInterval(() => captureAndAnalyze(), 3000);
+    // 立即分析一次
+    setTimeout(() => captureAndAnalyze(), 800);
+  } catch (e) {
+    alert('无法开启摄像头：' + (e.message || e) + '\n\n请检查摄像头权限（需在 https 环境下授权）');
+    $('camToggle').innerHTML = '<span class="live-dot"></span> 开启摄像头';
+  }
+}
+
+function stopCamera() {
+  if (captureTimer) { clearInterval(captureTimer); captureTimer = null; }
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(t => t.stop());
+    cameraStream = null;
+  }
+  const video = $('cameraVideo');
+  video.style.display = 'none';
+  $('camPlaceholder').style.display = 'flex';
+  $('camToggle').classList.remove('on');
+  $('camToggle').innerHTML = '<span class="live-dot"></span> 开启摄像头';
+  $('exprScores').style.display = 'none';
+}
+
+function captureAndAnalyze() {
+  if (!cameraStream || analyzing) return;
+  const video = $('cameraVideo');
+  if (!video.videoWidth) return; // 视频尚未就绪
+  analyzing = true;
+  try {
+    const canvas = document.createElement('canvas');
+    // 缩小到 320x240，降低图片体积（视觉模型有大小限制）
+    const maxW = 320;
+    const scale = maxW / video.videoWidth;
+    canvas.width = maxW;
+    canvas.height = Math.round(video.videoHeight * scale);
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
+    analyzeExpression(dataUrl).then(result => {
+      if (result && result.error) {
+        // 把错误直接显示在页面上，方便诊断
+        $('exprTip').textContent = '⚠️ ' + result.error;
+      } else if (result) {
+        updateExpressionDisplay(result);
+      } else {
+        $('exprTip').textContent = '分析失败，请稍候重试…';
+      }
+    }).finally(() => { analyzing = false; });
+  } catch (e) {
+    $('exprTip').textContent = '⚠️ 抽帧失败：' + (e?.message || e);
+    analyzing = false;
+  }
+}
+
+function updateExpressionDisplay(result) {
+  // 记录历史（最近 5 次取平均，减少抖动）+ 全量记录（报告汇总）
+  ['eye', 'face', 'dress'].forEach(k => {
+    expressionHistory[k].push(result[k]);
+    if (expressionHistory[k].length > 5) expressionHistory[k].shift();
+    expressionFull[k].push(result[k]);
+  });
+  if (result.tip) expressionFull.tips.push(result.tip);
+  const avg = k => Math.round(expressionHistory[k].reduce((a, b) => a + b, 0) / expressionHistory[k].length);
+
+  const eye = avg('eye'), face = avg('face'), dress = avg('dress');
+  $('exprEye').style.width = (eye * 10) + '%';
+  $('exprEyeVal').textContent = eye + '/10';
+  $('exprFace').style.width = (face * 10) + '%';
+  $('exprFaceVal').textContent = face + '/10';
+  $('exprDress').style.width = (dress * 10) + '%';
+  $('exprDressVal').textContent = dress + '/10';
+  $('exprTip').textContent = result.tip || '保持自然的表现即可';
+}
+
+/* ============ 事件绑定 ============ */
+$('startBtn').onclick = startInterview;
+$('sendBtn').onclick = handleSend;
+$('inputBox').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } });
+$('endBtn').onclick = endInterview;
+$('restartBtn').onclick = () => { showStage('resume'); };
+$('viewDemoBtn').onclick = () => showStage('demo');
+$('closeDemoBtn').onclick = () => showStage('report');
+$('micBtn').onclick = toggleMic;
+$('resumeBtn').onclick = handleResumeScore;
+$('camToggle').onclick = toggleCamera;
+
+// 简历文件上传
+const uploadZone = $('uploadZone');
+const resumeFile = $('resumeFile');
+uploadZone.onclick = () => resumeFile.click();
+resumeFile.onchange = (e) => handleResumeUpload(e.target.files[0]);
+['dragover', 'dragenter'].forEach(ev => uploadZone.addEventListener(ev, e => { e.preventDefault(); uploadZone.classList.add('dragover'); }));
+['dragleave', 'drop'].forEach(ev => uploadZone.addEventListener(ev, e => { e.preventDefault(); uploadZone.classList.remove('dragover'); }));
+uploadZone.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) handleResumeUpload(f); });
+
+/* ============ 启动 ============ */
+renderRoles();
+renderBg();
+renderScenes();
+renderDemos();
+initSpeech();
+initCloud(); // 初始化云服务大模型
+showStage('resume'); // 默认进入简历投递阶段
+// 注意：Live2D 延迟到进入面试阶段再初始化（避免 canvas 在 display:none 容器里尺寸为 0）
+</script>
+</body>
+</html>
