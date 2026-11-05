@@ -16,6 +16,8 @@ desktop.ini
 .env.*
 *.key
 *.pem
+web/config.js
+web/config.local.js
 
 # 含个人信息的原始材料 —— 永不入库
 raw/
