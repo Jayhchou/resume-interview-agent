@@ -335,25 +335,29 @@ def tool_score_career(args: Dict[str, Any], sess: Session) -> Dict[str, Any]:
             return {"ok": False, "error": f"缺维度 {key}（{label}）；五维必须齐全"}
         scores[key] = rubric.clamp_score(raw[key])
 
-    # 区分度：五维给成同一个分等于没判——雷达图退化成正五边形，
-    # 「最该先改的三件事」也就失去了依据。第一次退回让模型逐维重判，同场只退一次：
-    # 有些简历确实五维同档，第二次照收，不能为了区分度把诊断卡死。
-    # 只差 1 分（如 9/8/8/8/9）是正常的强弱信号，不拦，只在返回里提示。
+    # 区分度：五维给成同一个分（实测 7/8/7/7/7：四维同分）等于没判——雷达图退化成
+    # 正五边形，「最该先改的三件事」也就失去了依据。要求至少三个不同取值、且最大最小
+    # 拉开 2 分；第一次退回让模型逐维重判，同场只退一次：有些简历确实各维同档，
+    # 第二次照收，不能为了区分度把诊断卡死。
     spread = max(scores.values()) - min(scores.values())
-    if spread == 0 and not sess.career_flat_blocked:
+    distinct = len(set(scores.values()))
+    flat = distinct <= 2 or spread < 2
+    if flat and not sess.career_flat_blocked:
         sess.career_flat_blocked = 1
         return {
             "ok": False,
             "scores": scores,
             "error": (
-                "五维给成了同一个分（"
+                "五维区分度不足（"
                 + "/".join(str(scores[k]) for k, _l, _w in rubric.CAREER_DIMS)
-                + "）：等于用整体印象套五维，雷达图会退化成正五边形，看不出强弱项。"
+                + f"）：{distinct} 个不同取值、最高最低只差 {spread} 分。"
+                "雷达图上看不出强弱项，改简历时不知道该先补哪一维。"
             ),
             "hint": (
-                "逐维对照分档表重判，至少两维拉开 2 分以上：哪一维明确强于其他维（例如经历里有主导+量化），"
-                "哪一维明确最弱（例如表达只写了职责没写动作）。确实没有明显强弱时，在 evidence 的 problem 里写清"
-                "「为什么两维同档」，不要只给一个整体印象分再套到五维上。"
+                "逐维对照分档表重判，至少两维拉开 2 分以上（最好三档以上取值）：哪一维明确强于其他维"
+                "（例如经历里有主导 + 量化结果），哪一维明确最弱（例如表达只写了职责、没写动作与数据）。"
+                "确实没有明显强弱时，在 evidence 的 problem 里写清「为什么这两维同档」，"
+                "不要只给一个整体印象分再套到五维上。"
             ),
         }
 

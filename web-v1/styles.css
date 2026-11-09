@@ -167,13 +167,17 @@ svg[aria-hidden] { width: 18px; height: 18px; fill: none; stroke: currentColor; 
 
 /* 上传入口条 */
 .upload-strip {
-  margin-top: 24px; background: var(--panel); border: 1px dashed var(--line-strong);
+  margin-top: 4px; background: var(--panel); border: 1px dashed var(--line-strong);
   border-radius: var(--radius); padding: 20px 24px;
   display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 22px; align-items: center;
 }
 .upload-strip-text h2 { font-size: 15.5px; font-weight: 700; margin-bottom: 4px; }
 .upload-strip-text p { font-size: 12.5px; color: var(--muted); }
 .upload-strip .dropzone { padding: 20px 14px; }
+
+/* 模板区降为次要路径：上面先给上传/粘贴，模板另起一段并给一句说明 */
+.tpl-section { margin-top: 28px; }
+.tpl-section-title { font-size: 14px; font-weight: 700; color: var(--ink-soft); margin-bottom: 12px; }
 
 .dropzone {
   display: flex; flex-direction: column; align-items: center; gap: 6px;
@@ -541,6 +545,13 @@ svg[aria-hidden] { width: 18px; height: 18px; fill: none; stroke: currentColor; 
 #analysisAdvice.is-evidence li { padding: 9px 0; align-items: flex-start; }
 #analysisAdvice.is-evidence li:last-child { border-bottom: 0; }
 #analysisAdvice.is-evidence .evidence-line { margin-top: 4px; }
+/* 顶部三条改法：与下面的证据列表拉开层级，读起来是「结论 → 依据」 */
+#analysisAdvice.is-evidence .advice-top { border-bottom-color: transparent; background: var(--accent-soft); border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; }
+#analysisAdvice.is-evidence .advice-top strong { font-size: 13px; }
+#analysisAdvice.is-evidence .advice-top .advice-fix { display: block; margin-top: 4px; font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+#analysisAdvice.is-evidence .advice-divider { border-bottom: 1px solid var(--line); padding: 6px 0 8px; margin-top: 4px; counter-increment: none; }
+#analysisAdvice.is-evidence .advice-divider::before { content: none; }
+#analysisAdvice.is-evidence .advice-divider div { font-size: 12px; font-weight: 700; color: var(--ink-soft); letter-spacing: .3px; }
 #adviceTitle .agent-badge { margin-left: 8px; vertical-align: 1px; }
 .advice-note {
   margin-top: 14px; display: flex; gap: 8px; align-items: center; flex-shrink: 0;
@@ -808,3 +819,98 @@ svg[aria-hidden] { width: 18px; height: 18px; fill: none; stroke: currentColor; 
 .evidence-line strong { color: var(--accent-deep); margin-right: 6px; font-weight: 700; }
 .evidence-fix { color: var(--ink); margin-top: 3px; }
 .agent-note { font-size: 11.5px; color: var(--muted); margin-top: 10px; line-height: 1.6; }
+
+/* ===== 我的：个人数据页 ===== */
+.btn.danger { color: var(--danger); }
+.btn.danger:hover { border-color: var(--danger); background: #fdf3f3; }
+
+.kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 16px; }
+.kpi {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 14px 8px 12px; text-align: center;
+}
+.kpi-num { display: block; font-size: 26px; font-weight: 800; color: var(--accent-deep); line-height: 1.2; }
+.kpi-label { font-size: 11.5px; color: var(--muted); letter-spacing: 1px; }
+
+.profile-grid { display: grid; grid-template-columns: 300px 1fr 280px; gap: 16px; align-items: stretch; }
+.profile-col { display: flex; flex-direction: column; }
+
+.resume-visual { display: flex; flex-direction: column; align-items: center; justify-content: space-evenly; gap: 10px; flex: 1; }
+.donut-svg { width: 128px; height: 128px; }
+.donut-num { font-size: 21px; font-weight: 800; fill: var(--ink); }
+.donut-arc { stroke-dasharray: 0 var(--circ); animation: donut-grow .9s cubic-bezier(.2, .7, .3, 1) .15s forwards; }
+@keyframes donut-grow { to { stroke-dasharray: var(--arc) var(--circ); } }
+.donut-cap { font-size: 11px; color: var(--faint); text-align: center; }
+.mini-radar svg { width: 208px; height: auto; }
+.fact-dots { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.fact-dot {
+  width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
+  font-size: 11px; font-weight: 700; cursor: default;
+  animation: dot-pop .4s ease backwards; animation-delay: calc(var(--i) * 60ms);
+}
+@keyframes dot-pop { from { transform: scale(.4); opacity: 0; } }
+.fact-dot.ok { background: var(--mint-soft); color: var(--mint); }
+.fact-dot.warn { background: var(--amber-soft); color: var(--amber); }
+.fact-dot.empty { background: #f1f3f9; color: var(--faint); }
+
+.trend-box { flex: 1; min-height: 190px; display: flex; align-items: center; }
+.trend-svg { width: 100%; height: auto; }
+.trend-grid { stroke: #eef1f8; stroke-width: 1; }
+.trend-axis { font-size: 10px; fill: var(--faint); }
+.trend-path { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.trend-dot { fill: #fff; stroke: var(--accent); stroke-width: 2.5; animation: dot-pop .35s ease backwards; animation-delay: calc(.4s + var(--i) * 90ms); }
+
+.profile-row { display: grid; grid-template-columns: 1.25fr 1fr; gap: 18px; margin-top: 12px; align-items: start; }
+.heatmap { display: grid; grid-template-rows: repeat(7, 12px); grid-auto-flow: column; grid-auto-columns: 12px; gap: 3px; }
+.heat-cell { border-radius: 3px; background: #edf0f7; animation: dot-pop .3s ease backwards; animation-delay: calc(var(--i) * 8ms); }
+.heat-cell.l1 { background: #bcb6fa; }
+.heat-cell.l2 { background: var(--accent); }
+.heat-caption { font-size: 11px; color: var(--faint); margin-top: 8px; }
+.scene-svg { width: 116px; height: 116px; margin: 0 auto; display: block; }
+.scene-legend { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.scene-legend span { font-size: 11.5px; color: var(--muted); display: flex; align-items: center; }
+.scene-legend span b { margin-left: auto; color: var(--ink-soft); }
+.scene-legend i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; margin-right: 7px; flex-shrink: 0; }
+
+.status-stack { display: flex; flex-direction: column; gap: 12px; flex: 1; justify-content: space-evenly; }
+.status-block { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #fbfcff; }
+.s-num { font-size: 24px; font-weight: 800; color: var(--accent-deep); display: flex; align-items: center; gap: 7px; }
+.s-num svg { width: 20px; height: 20px; color: var(--amber); flex-shrink: 0; }
+.s-num small { font-size: 11.5px; color: var(--muted); font-weight: 400; margin-left: 2px; }
+.s-num.s-todo { font-size: 13px; color: var(--ink-soft); letter-spacing: 2px; }
+.s-track { height: 8px; border-radius: 5px; background: #edf0f7; overflow: hidden; margin-top: 9px; }
+.s-track span { display: block; height: 100%; border-radius: 5px; background: var(--amber); animation: track-grow .8s ease .25s backwards; }
+@keyframes track-grow { from { width: 0; } }
+.status-block p { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.6; }
+.status-block p strong { color: var(--amber); }
+.status-block .btn { margin-top: 8px; }
+
+.data-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; color: var(--muted); font-size: 12.5px; padding: 26px 10px; text-align: center; flex: 1;
+}
+.data-empty svg { width: 26px; height: 26px; color: var(--faint); }
+
+.history-card { margin-top: 16px; }
+.history-row {
+  display: flex; align-items: center; gap: 14px; padding: 10px 4px;
+  border-bottom: 1px dashed var(--line); font-size: 12.5px;
+  animation: dot-pop .3s ease backwards; animation-delay: calc(var(--i) * 40ms);
+}
+.history-row:last-of-type { border-bottom: 0; }
+.h-date { color: var(--muted); width: 62px; flex-shrink: 0; }
+.h-scene { font-weight: 600; width: 56px; flex-shrink: 0; }
+.h-meta { color: var(--muted); flex: 1; }
+.h-total { color: var(--accent-deep); font-size: 15px; }
+.h-total small { font-size: 11px; color: var(--muted); font-weight: 400; }
+.history-more { font-size: 11.5px; color: var(--faint); padding-top: 8px; }
+
+@media (max-width: 1100px) {
+  .profile-grid { grid-template-columns: 1fr 1fr; }
+  .profile-col.profile-wide { grid-column: 1 / -1; order: -1; }
+}
+@media (max-width: 880px) {
+  .kpi-strip { grid-template-columns: repeat(2, 1fr); }
+  .profile-grid { grid-template-columns: 1fr; }
+  .profile-row { grid-template-columns: 1fr; }
+}

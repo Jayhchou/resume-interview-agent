@@ -3,7 +3,11 @@
 
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-  const STORAGE_KEY = "resume-coach-demo-modules";
+  // 存档键升到 v2：旧版（被浏览器缓存住的那份）只认 resume-coach-demo-modules，
+  // 它在启动时会拿自己的空状态覆盖这个键。换成新键之后，旧版写多少都碰不到新数据，
+  // 用户刷新一次不会再把简历洗掉。
+  const STORAGE_KEY = "resume-coach-state-v2";
+  const LEGACY_KEYS = ["resume-coach-demo-modules"];
 
   // 与 agent.js 同一套探测规则：线上同源走相对路径，本机静态服务器另起 8000
   function apiBase() {
@@ -104,13 +108,31 @@
   };
   const clone = value => JSON.parse(JSON.stringify(value));
   let state = clone(defaultState);
+
+  // 读存档：新键优先，其次旧键（首次升级时把旧数据迁过来）。
+  // 多份候选里挑「简历最完整」的那份——旧版留下的空壳不能盖掉带简历的存档。
+  function readSaved() {
+    const picks = [];
+    [STORAGE_KEY, ...LEGACY_KEYS].forEach(key => {
+      try {
+        const raw = JSON.parse(localStorage.getItem(key));
+        if (raw && typeof raw === "object" && !Array.isArray(raw) && ("resume" in raw || "nav" in raw)) picks.push({ key, data: raw });
+      } catch (_) { /* 损坏的存档直接跳过 */ }
+    });
+    if (!picks.length) return null;
+    const weight = p => (p.data.resume ? JSON.stringify(p.data.resume).length : 0);
+    return picks.sort((a, b) => weight(b) - weight(a))[0];
+  }
+
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
     // 旧版判断的是 saved.basic，但 state 里根本没有这个键（简历在 saved.resume.basic），
     // 于是整段持久化一直是空转：刷新后简历、模板、当前页面全部回到初始态，
     // 复盘页也永远还原不出来。按 state 自己的字段判断。
-    if (saved && typeof saved === "object" && !Array.isArray(saved) && ("resume" in saved || "nav" in saved)) {
-      state = { ...state, ...saved };
+    const saved = readSaved();
+    if (saved) {
+      state = { ...state, ...saved.data };
+      // 从旧键迁过来的数据立刻写进新键：旧版再怎么覆盖旧键都伤不到这份
+      if (saved.key !== STORAGE_KEY && saved.data.resume) localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     }
   } catch (_) { /* 忽略损坏的本地存储 */ }
 
@@ -131,13 +153,52 @@
   if (state.resume) normalizeResume(state.resume);
 
   function saveState() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) { /* 本地存储不可用 */ }
+    try {
+      // 手里没有简历时一律不写盘：一份空状态落下去，存档里已有的简历就没了
+      // （旧版覆盖数据的现场就是这样——176 字符、"resume": null）。
+      if (!state.resume) {
+        const prev = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        if (prev && prev.resume) return;
+      }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (_) { /* 本地存储不可用 */ }
+  }
+
+  /* ============ 面试历史（独立键：不受 saveState「无简历不写盘」影响） ============ */
+
+  const HISTORY_KEY = "resume-coach-history-v1";
+  const HISTORY_CAP = 50;
+
+  function readHistory() {
+    try {
+      const list = JSON.parse(localStorage.getItem(HISTORY_KEY));
+      return Array.isArray(list) ? list : [];
+    } catch (_) { return []; }
+  }
+
+  function writeHistory(list) {
+    try { localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(-HISTORY_CAP))); }
+    catch (_) { /* 本地存储不可用 */ }
+  }
+
+  /** 每场面试复盘生成时记录一条。重复防护：同一 state.interview 只记一次
+      （agent 模式下刷新会走 restoreReview → renderAgentReview 重放，没这层会重复记）。 */
+  function recordHistory(entry) {
+    const list = readHistory();
+    list.push({ ts: Date.now(), ...entry });
+    writeHistory(list);
+    if (state.nav === "profile") renderProfile();
   }
 
   /* ============ 工具 ============ */
 
   const icon = name => `<svg aria-hidden="true"><use href="#i-${name}"/></svg>`;
   const escapeHTML = (value = "") => String(value).replace(/[&<>'"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[c]);
+  // 卡片标题行只留一句能扫读的话：超出长度的截断，全文另有证据正文可看
+  const clip = (text, max = 30) => {
+    const s = String(text || "").replace(/\s+/g, " ").trim();
+    return s.length > max ? s.slice(0, max - 1) + "…" : s;
+  };
   const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 
   function showToast(message, type = "success") {
@@ -276,8 +337,10 @@
     $$(".nav-item").forEach(item => item.classList.toggle("active", item.dataset.nav === nav));
     $("#resumeModule").hidden = nav !== "resume";
     $("#interviewModule").hidden = nav !== "interview";
+    $("#profileModule").hidden = nav !== "profile";
     if (nav === "resume") showResumeView(state.resumeView);
-    else showInterviewView(state.interviewView);
+    else if (nav === "interview") showInterviewView(state.interviewView);
+    else renderProfile();
     saveState();
   }
 
@@ -996,21 +1059,56 @@
     return /[「」『』]/.test(core) ? core : `「${core}」`;
   }
 
+  // 从证据里挑「最该先改的三件事」：先按该维分数从低到高（弱项先修），
+  // 同一维内按原顺序；改法文案撞车的只留一条。
+  function topFixes(evidence, scores) {
+    const key = dim => DIM_ALIAS[dim] || dim;
+    const rank = dim => {
+      const k = key(dim);
+      return scores && typeof scores[k] === "number" ? scores[k] : 9;
+    };
+    const seen = new Set();
+    return evidence
+      .map((e, i) => ({ e, i }))
+      .sort((a, b) => rank(a.e.dim) - rank(b.e.dim) || a.i - b.i)
+      .filter(({ e }) => {
+        const sig = String(e.fix || "").replace(/\s+/g, "");
+        if (!sig || seen.has(sig)) return false;
+        seen.add(sig);
+        return true;
+      })
+      .slice(0, 3)
+      .map(({ e }) => e);
+  }
+
   function renderAdvicePanel(r, scores) {
     const box = $("#analysisAdvice");
     const title = $("#adviceTitle");
     if (!box) return;
     if (agentEvidence.length) {
       if (title) {
-        title.innerHTML = agentDiagMode === "fallback"
-          ? '规则兜底扣分理由<span class="agent-badge" title="AI 不可用，由服务端规则挑出原文片段；分数上限 6 分">规则估分 · 非模型判断</span>'
-          : 'AI 扣分证据<span class="agent-badge" title="由 ' + escapeHTML(agentStatus.model || "模型") +
-            ' 判分，分数与等级由服务端量规计算">服务端量分</span>';
+        // 标题保持「最该先改的三件事」：这一页的核心承诺就是这三条。
+        // 之前有证据时整块换成「AI 扣分证据」，卡片名字就没了，看起来像核心卡没出结果。
+        title.innerHTML = '最该先改的三件事<span class="agent-badge" title="' +
+          (agentDiagMode === "fallback"
+            ? "AI 不可用，由服务端规则挑出原文片段；分数上限 6 分"
+            : "由 " + escapeHTML(agentStatus.model || "模型") + " 判分，分数与等级由服务端量规计算") +
+          '">' + (agentDiagMode === "fallback" ? "规则估分 · 非模型判断" : "服务端量分") + '</span>';
       }
       box.classList.add("is-evidence");
-      // 有证据时原来直接 return：页脚写着「最该先练 E1」，正文却全是扣分证据，
-      // 学生照着找找不到对应条目。把 top_gaps 放在最上面一条紧凑区块——它在
-      // 证据列表末尾时同样看不见（证据有 5–7 条，要滚到底）。
+      const fixes = topFixes(agentEvidence, scores);
+      const fixesHtml = fixes.map(e => `
+        <li class="advice-top"><div>
+          <strong>${escapeHTML(dimLabel(e.dim))}：${escapeHTML(clip(e.problem, 30))}</strong>
+          <span class="advice-fix">改法：${escapeHTML(e.fix)}</span>
+        </div></li>`).join("");
+      // 证据列表跟在三条改法后面：同一份材料，先给结论再给原文，不用两处对照
+      const evidenceHtml = agentEvidence.map(e => `
+        <li><div>
+          <div class="evidence-quote">${escapeHTML(wrapQuote(e.quote))}</div>
+          <div class="evidence-line"><strong>${escapeHTML(dimLabel(e.dim))}</strong>${escapeHTML(e.problem)}</div>
+          <div class="evidence-fix">改法：${escapeHTML(e.fix)}</div>
+        </div></li>`).join("");
       const gaps = agentGaps.filter(g => g && g.fact_id);
       const gapsHtml = gaps.length ? `
         <li class="advice-gaps"><div>
@@ -1021,12 +1119,10 @@
           </li>`).join("")}</ul>
           <p class="advice-gaps-note">面试首题就从这几条里出，编号与「AI 面试」里标注的一致。</p>
         </div></li>` : "";
-      box.innerHTML = gapsHtml + agentEvidence.map(e => `
-        <li><div>
-          <div class="evidence-quote">${escapeHTML(wrapQuote(e.quote))}</div>
-          <div class="evidence-line"><strong>${escapeHTML(dimLabel(e.dim))}</strong>${escapeHTML(e.problem)}</div>
-          <div class="evidence-fix">改法：${escapeHTML(e.fix)}</div>
-        </div></li>`).join("");
+      box.innerHTML = fixesHtml
+        + `<li class="advice-divider"><div>AI 扣分证据 · 逐条原文与改法</div></li>`
+        + evidenceHtml
+        + gapsHtml;
       return;
     }
     if (title) title.textContent = "最该先改的三件事";
@@ -1441,9 +1537,37 @@
     [0, "正在整理这场的对话…"],
     [9000, "正在逐题写点评与 STAR…"],
     [26000, "正在汇总卡点与改法…"],
-    [48000, "还在收尾，通常再等十几秒…"],
-    [70000, "快好了，正在等报告落库…"],
+    [50000, "还在收尾，通常再等十几秒…"],
+    [85000, "模型这轮写得久，报告一旦落库就自动跳转…"],
   ];
+
+  // 复盘前把前端手里的简历与本场问答灌回服务端。
+  // 会话存在服务端内存/磁盘里：进程被回收或换实例后（实测结束本场时 stage 掉回 S0、
+  // has_report=false），复盘就没有题可判，学生等到超时也拿不到报告。
+  // 只补缺不覆盖，服务端状态正常时这一步等于一次空写。
+  async function seedServerForReview() {
+    const it = state.interview;
+    if (!window.CoachAgent || !window.CoachAgent.hydrate || !state.resume || !it) return null;
+    const answers = Array.isArray(it.answers) ? it.answers : [];
+    const turns = answers.map((answer, i) => {
+      // 演示模式的题来自本地题库，能对上 fact_id；智能体模式题目是模型给的，留给服务端兜底
+      const q = it.agentMode ? {} : ((it.qs || [])[i] || {});
+      return { question: q.text || "", answer: String(answer || ""), fact_id: q.fact || "", layer: q.layer || "" };
+    });
+    try {
+      const ctx = await window.CoachAgent.hydrate({
+        resume: state.resume,
+        target_role: it.role || "",
+        scene: it.scene || "",
+        rounds: Number(it.rounds) || 0,
+        turns,
+      });
+      const restored = (ctx && ctx.restored) || {};
+      return restored.turns ? restored.turns : null;
+    } catch (_) {
+      return null;   // 服务端不可用时照常往下走，模型那一路还可能成功
+    }
+  }
 
   async function agentReview() {
     const it = state.interview;
@@ -1508,7 +1632,9 @@
             }
           }).catch(err => { failed = failed || (err && err.message ? err.message : String(err)); }),
           early,
-          new Promise(resolve => setTimeout(resolve, 75000))   // 硬上限：不许无限停在「生成中」
+          // 硬上限：不许无限停在「生成中」。120s 是实测留的余量——复盘 prompt 最长，
+          // 75s 那版真实场景里两次都没拿到报告，直接判失败太早。
+          new Promise(resolve => setTimeout(resolve, 120000))
         ]);
       } finally {
         dropEmptyBubble();
@@ -1527,6 +1653,13 @@
     };
 
     showToast("正在生成复盘，通常半分钟到一分钟，进度显示在对话里");
+
+    // 先续会话：进程重启过的场次，服务端一条答题记录都没有，模型再怎么写也出不了报告
+    const restoredTurns = await seedServerForReview();
+    if (restoredTurns) {
+      stage(`服务端会话已断开，已按本地记录恢复 ${restoredTurns} 道题，继续生成复盘…`);
+      showToast(`服务端会话已恢复 ${restoredTurns} 道题`, "success");
+    }
 
     try {
       // 网关偶发 502 / 半路断流时服务端并没有报告：自动重跑一次，
@@ -1699,7 +1832,20 @@
       : "";
     $("#reviewList").innerHTML = rows + gapRows;
     renderStarCard(report);
-    if (state.interview) { state.interview.reviewReady = true; saveState(); }
+    if (state.interview) {
+      state.interview.reviewReady = true;
+      if (!state.interview.recorded) {
+        state.interview.recorded = true;
+        recordHistory({
+          scene: report.scene || it.scene || "模拟面试",
+          rounds: Number(report.rounds) || (it.answers || []).length || 0,
+          total: Number(report.total) || 0,
+          scores: report.scores || {},
+          facts: (report.per_question || []).length
+        });
+      }
+      saveState();
+    }
     showInterviewView("review");
     showToast(`复盘已生成：${report.total} 分 · ${report.match_level}`);
   }
@@ -1923,7 +2069,8 @@
       behavior,
       fit: clamp(Math.round((tech + project) / 2), 3, 9)
     };
-    $("#reviewTotal").textContent = totalOf(scores, interviewMeta);
+    const total = totalOf(scores, interviewMeta);
+    $("#reviewTotal").textContent = total;
     $("#reviewRadar").innerHTML = radarSVG(scores, interviewMeta, "#168e70");
     $("#reviewContext").textContent = `${it.scene} · ${it.rounds} 轮问答 · 岗位「${it.role}」`;
     $("#reviewList").innerHTML = results.map((r, i) => `
@@ -1942,6 +2089,16 @@
         </div>
       </article>`).join("");
     state.interview.reviewReady = true;
+    if (!it.recorded) {
+      it.recorded = true;
+      recordHistory({
+        scene: it.scene,
+        rounds: (it.answers || []).length,
+        total,
+        scores,
+        facts: (it.qs || []).length
+      });
+    }
     showInterviewView("review");
     showToast("面试结束，逐题复盘已生成");
   }
@@ -2064,6 +2221,285 @@
     }
   }
 
+  /* ============ 我的：个人数据页 ============ */
+
+  const fmtDate = ts => { const d = new Date(ts); return `${d.getMonth() + 1}月${d.getDate()}日`; };
+  const dayKey = ts => { const d = new Date(ts); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+
+  // 数字滚动：KPI 与状态卡共用，rAF 缓出
+  function countUp(el, target, { suffix = "", duration = 750 } = {}) {
+    const start = performance.now();
+    const step = now => {
+      const p = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = Math.round(target * eased) + suffix;
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  // 连续训练：今天没练不断签（从今天或昨天往前数）；best 取历史最长连跑
+  function streakOf(list) {
+    const days = [...new Set(list.map(h => dayKey(h.ts)))].sort();
+    let best = 0, run = 0, prev = null;
+    days.forEach(key => {
+      const diff = new Date(key) - new Date(prev);
+      run = prev && diff === 86400000 ? run + 1 : 1;
+      best = Math.max(best, run);
+      prev = key;
+    });
+    let current = 0;
+    const cursor = new Date();
+    if (!days.includes(dayKey(cursor.getTime()))) cursor.setDate(cursor.getDate() - 1);
+    while (days.includes(dayKey(cursor.getTime()))) {
+      current += 1;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    return { current, best };
+  }
+
+  function profileResumeData() {
+    if (!state.resume) return null;
+    const scores = agentScores || computeScores(state.resume);
+    const bullets = allBullets(state.resume);
+    return {
+      progress: overallProgress(state.resume),
+      scores,
+      bullets,
+      unverified: bullets.filter(b => !/\d/.test(b)).length
+    };
+  }
+
+  // E1–E6 状态点：对应模块有内容且要点都带数字 = 绿，有内容缺数字 = 黄，无内容 = 灰
+  function factDotsData() {
+    const r = state.resume;
+    if (!r) return [];
+    const bulletsOf = moduleId => moduleId === "skills"
+      ? (r.skills || [])
+      : (r[moduleId] || []).flatMap(x => x.bullets || []);
+    return Object.entries(factModuleMap).map(([id, moduleId]) => {
+      const bullets = bulletsOf(moduleId);
+      const state = !bullets.length ? "empty" : bullets.every(b => /\d/.test(b)) ? "ok" : "warn";
+      return { id, state };
+    });
+  }
+
+  function donutSVG(pct, color = "#625bf6") {
+    const r = 46, c = 2 * Math.PI * r;
+    return `<svg viewBox="0 0 120 120" class="donut-svg">
+      <circle cx="60" cy="60" r="${r}" fill="none" stroke="#edf0f7" stroke-width="12"/>
+      <circle cx="60" cy="60" r="${r}" fill="none" stroke="${color}" stroke-width="12" stroke-linecap="round"
+        class="donut-arc" transform="rotate(-90 60 60)"
+        style="--arc:${(pct / 100) * c}; --circ:${c}"/>
+      <text x="60" y="66" text-anchor="middle" class="donut-num">0%</text>
+    </svg>`;
+  }
+
+  function trendSVG(list) {
+    const pts = list.slice(-10);
+    const w = 560, h = 190, px = 44, py = 30;
+    const x = i => (pts.length === 1 ? w / 2 : px + i * (w - px * 2) / (pts.length - 1));
+    const y = v => py + (1 - v / 100) * (h - py * 2);
+    const coords = pts.map((p, i) => [x(i), y(p.total)]);
+    const path = coords.map(([cx, cy], i) => `${i ? "L" : "M"}${cx.toFixed(1)} ${cy.toFixed(1)}`).join(" ");
+    const gridY = [0, 50, 100].map(v =>
+      `<line x1="${px - 14}" x2="${w - px / 2}" y1="${y(v)}" y2="${y(v)}" class="trend-grid"/>
+       <text x="${px - 20}" y="${y(v) + 4}" class="trend-axis">${v}</text>`).join("");
+    const dots = coords.map(([cx, cy], i) =>
+      `<circle cx="${cx}" cy="${cy}" r="4.5" class="trend-dot" style="--i:${i}"/>`).join("");
+    const dates = pts.length > 1
+      ? `<text x="${coords[0][0]}" y="${h - 6}" class="trend-axis">${fmtDate(pts[0].ts)}</text>
+         <text x="${coords[coords.length - 1][0]}" y="${h - 6}" text-anchor="end" class="trend-axis">${fmtDate(pts[pts.length - 1].ts)}</text>`
+      : "";
+    return `<svg viewBox="0 0 ${w} ${h}" class="trend-svg">${gridY}<path d="${path}" class="trend-path"/>${dots}${dates}</svg>`;
+  }
+
+  // 描线动画：插进 DOM 后量出路径长度，从右往左画出
+  function animateTrend() {
+    const path = $("#trendChart .trend-path");
+    if (!path) return;
+    const len = path.getTotalLength();
+    if (!len) return;
+    path.style.strokeDasharray = `${len}`;
+    path.style.strokeDashoffset = `${len}`;
+    requestAnimationFrame(() => {
+      path.style.transition = "stroke-dashoffset 1.1s cubic-bezier(.3,.7,.3,1) .15s";
+      path.style.strokeDashoffset = "0";
+    });
+  }
+
+  function heatmapHTML(list) {
+    const counts = {};
+    list.forEach(h => { const k = dayKey(h.ts); counts[k] = (counts[k] || 0) + 1; });
+    const cells = [];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    for (let i = 55; i >= 0; i -= 1) {
+      const d = new Date(today.getTime() - i * 86400000);
+      const k = dayKey(d.getTime());
+      const n = counts[k] || 0;
+      cells.push(`<i class="heat-cell ${n > 1 ? "l2" : n ? "l1" : ""}" style="--i:${55 - i}" title="${k}${n ? ` · ${n} 场` : ""}"></i>`);
+    }
+    return `<div class="heatmap">${cells.join("")}</div><p class="heat-caption">近 8 周训练频率</p>`;
+  }
+
+  function sceneDonutHTML(list) {
+    const colors = { 专业面: "#625bf6", 行为面: "#168e70", 压力面: "#e5a30d" };
+    const counts = { 专业面: 0, 行为面: 0, 压力面: 0 };
+    list.forEach(h => { if (counts[h.scene] != null) counts[h.scene] += 1; });
+    const total = list.length;
+    if (!total) return "";
+    const r = 38, c = 2 * Math.PI * r;
+    let acc = 0;
+    const arcs = Object.entries(counts).filter(([, n]) => n > 0).map(([scene, n]) => {
+      const frac = n / total;
+      const seg = `<circle cx="50" cy="50" r="${r}" fill="none" stroke="${colors[scene]}" stroke-width="13"
+        class="donut-arc" stroke-dashoffset="${-acc * c}" transform="rotate(-90 50 50)"
+        style="--arc:${Math.max(frac * c - 1.5, 1).toFixed(1)}; --circ:${c}"/>`;
+      acc += frac;
+      return seg;
+    }).join("");
+    const legend = Object.entries(counts).map(([scene, n]) =>
+      `<span><i style="background:${colors[scene]}"></i>${scene}<b>${n} 场</b></span>`).join("");
+    return `<svg viewBox="0 0 100 100" class="scene-svg">${arcs}</svg><div class="scene-legend">${legend}</div>`;
+  }
+
+  function statusPanelHTML(list, rd) {
+    const streak = streakOf(list);
+    let weakest = null;
+    if (list.length) {
+      const sums = {}, counts = {};
+      list.forEach(h => Object.entries(h.scores || {}).forEach(([k, v]) => {
+        if (typeof v !== "number") return;
+        sums[k] = (sums[k] || 0) + v;
+        counts[k] = (counts[k] || 0) + 1;
+      }));
+      const avgs = Object.entries(sums).map(([k, s]) => [k, s / counts[k]]);
+      if (avgs.length) {
+        const [key, val] = avgs.sort((a, b) => a[1] - b[1])[0];
+        const meta = interviewMeta.find(m => m[0] === key);
+        weakest = { label: meta ? meta[1] : key, avg: Math.round(val) };
+      }
+    }
+    const todo = !rd
+      ? { text: "还没有简历数据，先创建一份，面试题都从简历里出。", jump: "entry", label: "去创建" }
+      : rd.unverified
+        ? { text: `有 <strong>${rd.unverified}</strong> 条经历要点缺可验证结果，建议先补上数字。`, jump: "editor", label: "去编辑" }
+        : { text: "简历结构完整，事实全部有数字支撑。", jump: "setup", label: "去面试实战" };
+    return `<div class="status-stack">
+      <div class="status-block">
+        <span class="s-num">${icon("spark")}<span data-count>${streak.current}</span><small>天连续</small></span>
+        <p>最长 ${streak.best} 天 · 每天至少一场算连续</p>
+      </div>
+      ${weakest ? `<div class="status-block">
+        <span class="s-num">${escapeHTML(weakest.label)}<small>均分 ${weakest.avg}/10</small></span>
+        <div class="s-track"><span style="width:${Math.max(weakest.avg * 10, 6)}%"></span></div>
+        <p>面试里最弱的一维，优先针对它练。</p>
+      </div>` : ""}
+      <div class="status-block">
+        <span class="s-num s-todo">待办</span>
+        <p>${todo.text}</p>
+        <button type="button" class="btn ghost sm" data-jump="${todo.jump}">${todo.label}</button>
+      </div>
+    </div>`;
+  }
+
+  const emptyGuide = (text, jump, label) =>
+    `<div class="data-empty"><svg aria-hidden="true"><use href="#i-spark"/></svg><span>${text}</span>
+     <button type="button" class="btn ghost sm" data-jump="${jump}">${label}</button></div>`;
+
+  function renderProfile() {
+    const list = readHistory();
+    const rd = profileResumeData();
+    const streak = streakOf(list);
+    const sessions = list.length;
+    const avg = sessions ? Math.round(list.reduce((s, h) => s + (h.total || 0), 0) / sessions) : 0;
+    const rounds = list.reduce((s, h) => s + (h.rounds || 0), 0);
+
+    // 状态短句
+    $("#profileStatusLine").textContent = sessions
+      ? `最近一场「${list[sessions - 1].scene}」在 ${fmtDate(list[sessions - 1].ts)} · 已连续训练 ${streak.current} 天`
+      : "完成第一场 AI 面试，这里就会长出你的数据";
+
+    // KPI 条
+    const kpis = [
+      ["简历完成度", rd ? rd.progress : 0, "%"],
+      ["面试场次", sessions, ""],
+      ["平均表达分", sessions ? avg : 0, ""],
+      ["累计问答轮数", rounds, ""],
+      ["最长连续天数", streak.best, ""]
+    ];
+    $("#kpiStrip").innerHTML = kpis.map(([label, value, suffix]) => `
+      <div class="kpi">
+        <strong class="kpi-num" data-target="${value}" data-suffix="${suffix}">0${suffix}</strong>
+        <span class="kpi-label">${label}</span>
+      </div>`).join("");
+    $$("#kpiStrip .kpi-num").forEach(el => countUp(el, Number(el.dataset.target), { suffix: el.dataset.suffix }));
+
+    // 左：简历数据
+    $("#resumeDonut").innerHTML = rd
+      ? donutSVG(rd.progress) + `<p class="donut-cap">结构完成度 ${rd.progress}%</p>`
+      : emptyGuide("还没有简历", "entry", "去创建");
+    const donutNum = $("#resumeDonut .donut-num");
+    if (donutNum && rd) countUp(donutNum, rd.progress, { suffix: "%" });
+    $("#profileRadar").innerHTML = rd ? radarSVG(rd.scores, careerMeta) : "";
+    $("#factDots").innerHTML = rd
+      ? factDotsData().map((d, i) =>
+          `<span class="fact-dot ${d.state}" style="--i:${i}" title="${d.id} · ${d.state === "ok" ? "结果可验证" : d.state === "warn" ? "有内容但缺数字" : "还没有对应内容"}">${d.id}</span>`).join("")
+      : "";
+
+    // 中：面试历史
+    $("#trendChart").innerHTML = sessions
+      ? trendSVG(list)
+      : emptyGuide("还没有面试记录", "setup", "去练一场");
+    $("#heatmapBox").innerHTML = sessions ? heatmapHTML(list) : "";
+    $("#sceneDonut").innerHTML = sessions ? sceneDonutHTML(list) : "";
+    animateTrend();
+
+    // 右：当前状态
+    $("#statusPanel").innerHTML = statusPanelHTML(list, rd);
+    const streakEl = $("#statusPanel [data-count]");
+    if (streakEl) countUp(streakEl, streak.current);
+
+    // 场次记录（新→旧，最多 10 条）
+    $("#historyList").innerHTML = sessions
+      ? [...list].reverse().slice(0, 10).map((h, i) => `
+          <div class="history-row" style="--i:${i}">
+            <span class="h-date">${fmtDate(h.ts)}</span>
+            <span class="h-scene">${escapeHTML(h.scene || "面试")}</span>
+            <span class="h-meta">${h.rounds || 0} 轮 · 引用 ${h.facts || 0} 个事实</span>
+            <strong class="h-total">${h.total || 0}<small> 分</small></strong>
+          </div>`).join("") + (sessions > 10 ? `<p class="history-more">更早的 ${sessions - 10} 场已折叠，导出数据可查看全部</p>` : "")
+      : emptyGuide("场次记录为空", "setup", "去练一场");
+  }
+
+  // 导出：简历状态 + 全部面试历史打包成 JSON
+  function exportProfileData() {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      resume: state.resume,
+      history: readHistory()
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `简历陪练数据-${dayKey(Date.now())}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast("数据已导出为 JSON 文件");
+  }
+
+  async function clearProfileData() {
+    const ok = await askConfirm("将清空本机的简历数据与全部面试历史，且无法恢复。确定清空吗？", "全部清空");
+    if (!ok) return;
+    [STORAGE_KEY, HISTORY_KEY, ...LEGACY_KEYS].forEach(key => localStorage.removeItem(key));
+    state = clone(defaultState);
+    renderGallery();
+    renderProfile();
+    showToast("已清空全部本地数据");
+  }
+
   function bindEvents() {
     $$(".nav-item").forEach(item => item.addEventListener("click", () => switchNav(item.dataset.nav)));
 
@@ -2172,6 +2608,17 @@
     $("#quitInterview").addEventListener("click", endInterview);
     $("#reviewRestart").addEventListener("click", () => { state.interview = null; showInterviewView("setup"); });
     $("#reviewToResume").addEventListener("click", () => { switchNav("resume"); showResumeView(state.resume ? "editor" : "entry"); });
+
+    /* 我的：导出 / 清空 / 页内跳转 */
+    $("#exportData").addEventListener("click", exportProfileData);
+    $("#clearData").addEventListener("click", clearProfileData);
+    $("#profileView").addEventListener("click", event => {
+      const jump = event.target.closest("[data-jump]")?.dataset.jump;
+      if (!jump) return;
+      if (jump === "editor") { switchNav("resume"); showResumeView("editor"); }
+      else if (jump === "entry") { switchNav("resume"); showResumeView("entry"); }
+      else if (jump === "setup") { switchNav("interview"); showInterviewView("setup"); }
+    });
 
     /* 事实编号跳转（对话 + 复盘两处共用） */
     document.body.addEventListener("click", event => {

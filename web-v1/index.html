@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>简历陪练 · 智能体版</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231f6f5c'/%3E%3Ctext x='16' y='22' font-size='16' text-anchor='middle' fill='white' font-family='sans-serif'%3E%E9%99%AA%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="styles.css?v=30">
+  <link rel="stylesheet" href="styles.css?v=33">
 </head>
 <body>
   <!-- = 内置图标 = -->
@@ -51,6 +51,10 @@
         <svg aria-hidden="true"><use href="#i-chat"/></svg>
         <span>AI 面试</span>
       </button>
+      <button class="nav-item" data-nav="profile" id="navProfile">
+        <svg aria-hidden="true"><use href="#i-user"/></svg>
+        <span>我的</span>
+      </button>
     </nav>
     <div class="nav-foot">
       <span class="nav-mode">DEMO</span>
@@ -67,16 +71,13 @@
       <div id="resumeEntry" class="subview">
         <header class="subview-head">
           <div>
-            <p class="eyebrow">简历模块</p>
-            <h1>选一个模板，开始制作</h1>
-            <p class="sub">先挑一套版式进入结构化编辑器，随时可返回重选；已有简历也可以直接上传解析。</p>
+            <p class="eyebrow">简历模块 · 诊断 + 面试</p>
+            <h1>先把简历过一遍诊断，再进 AI 面试</h1>
+            <p class="sub">上传或粘贴简历 → AI 逐维指出扣分原文与改法 → 按你的经历出题陪练。版式只在导出 DOCX 时用到，最后再选也不迟。</p>
           </div>
         </header>
 
-        <!-- 模板卡片网格 -->
-        <div class="tpl-gallery" id="tplGallery"></div>
-
-        <!-- 上传入口（次要） -->
+        <!-- 上传入口（主路径：诊断与面试都从这里开始） -->
         <article class="upload-strip" id="entryUpload">
           <div class="upload-strip-text">
             <h2>已有简历？直接上传优化</h2>
@@ -94,6 +95,12 @@
             <button class="btn ghost" id="parsePaste">解析这段文本</button>
           </details>
         </article>
+
+        <!-- 模板卡片网格（次要路径：还没有简历时从版式起步） -->
+        <section class="tpl-section">
+          <h2 class="tpl-section-title">还没有简历？先选一套版式，边填边改</h2>
+          <div class="tpl-gallery" id="tplGallery"></div>
+        </section>
       </div>
 
       <!-- 结构化编辑页 -->
@@ -260,13 +267,66 @@
         </div>
       </div>
     </section>
+
+    <!-- ===== 我的：个人数据页 ===== -->
+    <section id="profileModule" class="module" hidden>
+      <div id="profileView" class="subview">
+        <header class="subview-head with-actions">
+          <div>
+            <p class="eyebrow">个人中心</p>
+            <h1>我的</h1>
+            <p class="sub" id="profileStatusLine"></p>
+          </div>
+          <div class="head-actions">
+            <button type="button" class="btn ghost sm" id="exportData"><svg aria-hidden="true"><use href="#i-upload"/></svg>导出数据</button>
+            <button type="button" class="btn ghost sm danger" id="clearData"><svg aria-hidden="true"><use href="#i-trash"/></svg>清空数据</button>
+          </div>
+        </header>
+
+        <!-- KPI 数据条 -->
+        <div class="kpi-strip" id="kpiStrip"></div>
+
+        <div class="profile-grid">
+          <!-- 左：简历数据 -->
+          <section class="card profile-col">
+            <h2>简历数据</h2>
+            <div class="resume-visual">
+              <div id="resumeDonut"></div>
+              <div class="mini-radar" id="profileRadar"></div>
+              <div class="fact-dots" id="factDots"></div>
+              <p class="donut-cap">E1–E6 事实状态 · 绿=结果可验证 黄=缺数字</p>
+            </div>
+          </section>
+          <!-- 中：面试历史（主视觉） -->
+          <section class="card profile-col profile-wide">
+            <h2>面试历史</h2>
+            <div class="trend-box" id="trendChart"></div>
+            <div class="profile-row">
+              <div id="heatmapBox"></div>
+              <div id="sceneDonut"></div>
+            </div>
+          </section>
+          <!-- 右：当前状态 -->
+          <section class="card profile-col">
+            <h2>当前状态</h2>
+            <div id="statusPanel"></div>
+          </section>
+        </div>
+
+        <!-- 场次记录 -->
+        <section class="card history-card">
+          <h2>场次记录</h2>
+          <div id="historyList"></div>
+        </section>
+      </div>
+    </section>
   </main>
 
   <div id="toastRegion" aria-live="polite"></div>
   <script src="config.js"></script>
   <!-- 云 SDK 本地托管：jsdelivr 在国内网络常被拦，线上必须自带 -->
   <script src="vendor/workbuddy-cloud-sdk.global.js"></script>
-  <script src="agent.js?v=22"></script>
-  <script src="app.js?v=39"></script>
+  <script src="agent.js?v=23"></script>
+  <script src="app.js?v=42"></script>
 </body>
 </html>

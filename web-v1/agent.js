@@ -84,6 +84,12 @@
     `/api/agent/session/${encodeURIComponent(sessionId)}/interview/answer`,
     { method: "POST", body: JSON.stringify({ answer }) }
   );
+  // 会话重灌：服务端进程被回收/换实例后，简历与本场问答都不在了。
+  // 关键步骤（生成复盘）之前灌一次，学生手里的数据就是兜底副本。
+  const hydrate = (body) => http(
+    `/api/agent/session/${encodeURIComponent(sessionId)}/hydrate`,
+    { method: "POST", body: JSON.stringify(body || {}) }
+  );
 
   /* ---------- 云端模型 ---------- */
 
@@ -518,6 +524,7 @@
     interviewAnswer,
     interviewNext,
     recordAnswer,
+    hydrate,
     review,
     resetSession,
     session,

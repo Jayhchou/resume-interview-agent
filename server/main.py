@@ -48,6 +48,27 @@ WEB_DIR = os.path.join(ROOT_DIR, "web")
 WEB_V1_DIR = os.path.join(ROOT_DIR, "web-v1")
 
 
+# ============ 缓存策略 ============
+
+# index.html 必须每次回源：它带着 app.js?v=N 的版本号，HTML 被缓存住，
+# 重新发布后浏览器仍按旧版本号取脚本——实测同一条分享链接能同时拿到新版和旧版，
+# 旧版启动时还用自己的空状态覆盖了存档里的简历。
+@app.middleware("http")
+async def no_cache_html(request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    ctype = response.headers.get("content-type", "")
+    if path.startswith("/api/") or path in ("/", "/index.html", "/legacy/", "/legacy/index.html"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+    elif "text/html" in ctype:
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    else:
+        # 脚本/样式带 ?v=，版本号变了才会换地址；这里只要求回源校验（ETag 命中走 304）
+        response.headers.setdefault("Cache-Control", "no-cache")
+    return response
+
+
 # ============ 数据模型 ============
 
 class ResumeRequest(BaseModel):
@@ -96,6 +117,27 @@ class InterviewStartRequest(BaseModel):
 class InterviewAnswerRequest(BaseModel):
     """前端兜底落库：学生的原话直接进本场面试记录"""
     answer: str = Field("", description="学生这一轮的原话")
+
+
+class HydrateTurn(BaseModel):
+    question: str = Field("", description="这一轮的问题原句")
+    answer: str = Field("", description="学生这一轮的回答原话")
+    fact_id: str = Field("", description="锚定的简历事实编号")
+    layer: str = Field("", description="追问层级")
+
+
+class HydrateRequest(BaseModel):
+    """会话重灌：把前端手里的简历与本场问答重新灌回服务端。
+
+    为什么要这条：会话存在服务端内存/本地磁盘里，进程被回收或换实例之后
+    （实测「结束本场」时 stage 掉回 S0、has_report=false），复盘就没有题可判。
+    学生手里一直留着简历和这三句回答，由前端在关键步骤前灌一次即可续上。
+    """
+    resume: Optional[Dict[str, Any]] = Field(None, description="结构化简历")
+    target_role: str = Field("", description="目标岗位")
+    scene: str = Field("", description="面试场景")
+    rounds: int = Field(0, description="计划轮数")
+    turns: List[HydrateTurn] = Field(default_factory=list, description="本场已答的题")
 
 
 # ============ 语音合成 ============
@@ -377,6 +419,7 @@ def agent_tool(req: ToolCallRequest):
         raise HTTPException(status_code=400, detail="缺 session_id")
     sess = session_store.get(req.session_id)
     result = agent_tools.invoke(req.name, req.args or {}, sess)
+    session_store.save(req.session_id)
     return {
         "ok": result.get("ok", True),
         "result": result,
@@ -439,6 +482,7 @@ def agent_prepare(req: PrepareRequest):
 
     payload = agent_rt.manifest(req.module, sess)
     payload["prepared"] = prepared
+    session_store.save(req.session_id)
     return payload
 
 
@@ -459,6 +503,52 @@ def agent_session_reset(sid: str):
     return {"ok": True, "reset": sid}
 
 
+@app.post("/api/agent/session/{sid}/hydrate")
+def agent_session_hydrate(sid: str, req: HydrateRequest):
+    """把前端手里的简历 + 本场问答灌回服务端（幂等）。
+
+    只补缺，不覆盖：服务端已有简历/清单/答题记录时一律原样保留，
+    避免把正常会话的状态冲掉。返回灌完之后的上下文，前端可据此确认轮次。
+    """
+    sess = session_store.get(sid)
+    restored = {"resume": False, "sheet": False, "turns": 0}
+
+    if req.resume and not sess.resume:
+        res = agent_tools.tool_save_resume({"resume": req.resume, "target_role": req.target_role}, sess)
+        restored["resume"] = bool(res.get("ok"))
+
+    if sess.resume and not sess.fact_sheet:
+        # 清单是面试与复盘的准入条件（S3），且建清单要求先有诊断分数（S2）。
+        # 会话丢过一轮的话这里什么都没有：按规则补一次诊断（上限 6 分、来源标 rules），
+        # 再把简历要点摊成清单——够复盘用，且不会冒充模型判断。
+        if not sess.career_scores:
+            agent_tools._fallback_score(sess)
+        res = agent_tools.tool_build_fact_sheet({"auto": True}, sess)
+        restored["sheet"] = bool(res.get("ok"))
+
+    if req.turns and not sess.interview.get("turns"):
+        rounds = agent_tools._clamp_rounds(req.rounds or len(req.turns))
+        agent_tools.reset_interview(sess, str(req.scene or ""), str(req.target_role or ""), rounds)
+        for turn in req.turns:
+            if not turn.answer.strip():
+                continue
+            sess.interview["pending_question"] = {
+                "question": turn.question,
+                "fact_id": turn.fact_id,
+                "layer": turn.layer or "事实",
+            }
+            res = agent_tools.record_answer(sess, turn.answer, source="hydrate")
+            if res.get("ok") and not res.get("deduped"):
+                restored["turns"] += 1
+
+    if any(restored.values()):
+        sess.log_tool("hydrate", True, f"重灌 简历{int(restored['resume'])} 清单{int(restored['sheet'])} 答题{restored['turns']}")
+    session_store.save(sid)
+    ctx = sess.context()
+    ctx["restored"] = restored
+    return ctx
+
+
 @app.post("/api/agent/session/{sid}/interview/start")
 def agent_interview_start(sid: str, req: InterviewStartRequest):
     """开新一场面试：清空上一场的轮次、计数器与追问记录。
@@ -475,6 +565,7 @@ def agent_interview_start(sid: str, req: InterviewStartRequest):
     agent_tools.reset_interview(sess, str(req.scene or "").strip(), str(req.role or "").strip(), rounds)
     sess.report = None
     sess.log_tool("start_interview", True, f"新一场面试 · 计划 {rounds} 轮")
+    session_store.save(sid)
     return {"ok": True, "stage": sess.context()["stage"], "rounds_planned": sess.interview["rounds_planned"]}
 
 
@@ -494,6 +585,7 @@ def agent_interview_answer(sid: str, req: InterviewAnswerRequest):
             True,
             "回答已落库" if not res.get("deduped") else "回答重复，已忽略",
         )
+    session_store.save(sid)
     return res
 
 
@@ -578,8 +670,13 @@ def resume_optimize(payload: Dict[str, Any]):
     )
 
 
-# ============ 静态文件挂载（必须放在所有 API 路由之后）============
+@app.on_event("shutdown")
+def _flush_sessions():
+    """正常停机时统一落盘：重启后再进来，简历/清单/答题记录都还在。"""
+    session_store.save()
 
+
+# ============ 静态文件挂载（必须放在所有 API 路由之后）============
 # 根路径给智能体版前端（web-v1），早期单页版本保留在 /legacy 作对照
 if os.path.isdir(WEB_DIR):
     app.mount("/legacy", StaticFiles(directory=WEB_DIR, html=True), name="legacy")

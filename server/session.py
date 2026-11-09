@@ -5,6 +5,9 @@
 """
 from __future__ import annotations
 
+import json
+import os
+import tempfile
 import threading
 import time
 from typing import Any, Dict, List, Optional
@@ -12,8 +15,18 @@ from typing import Any, Dict, List, Optional
 SESSION_TTL = 6 * 3600  # 演示期 6 小时
 MAX_SESSIONS = 500
 
+# 存档落盘：原来 _store 纯内存，进程一重启会话全丢（实测：答完 3 题点「结束本场」，
+# 复盘请求回来时 stage 已经是 S0、has_report=false，报告永远拿不到）。
+# 落盘解决「同一进程重启」；跨实例/换机的那种丢失由前端的 hydrate 接口重灌。
+STATE_FILE = os.environ.get("COACH_STATE_FILE") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), ".state", "sessions.json"
+)
+SAVE_INTERVAL = 0.8   # 秒：同一进程内的高频读写不必每次都落盘
+
 _lock = threading.Lock()
 _store: Dict[str, "Session"] = {}
+_loaded = False
+_last_save = 0.0
 
 
 def _now() -> float:
@@ -154,19 +167,81 @@ class Session:
 
 def get(sid: str) -> Session:
     """取或建会话。空 sid 由调用方保证非空。"""
+    global _last_save
     with _lock:
+        _ensure_loaded_locked()
         _evict_locked()
         sess = _store.get(sid)
         if sess is None:
             sess = Session(sid)
             _store[sid] = sess
+        # 上一次请求改完状态后没落盘就崩了：这里顺手补落一次（节流，不每次请求都写盘）
+        if sess.updated_at - _last_save > SAVE_INTERVAL:
+            _save_locked()
         sess.touch()
         return sess
+
+
+def save(_sid: str = "") -> None:
+    """把当前状态写盘。改过状态的路由调用一次，进程被回收也不丢。"""
+    with _lock:
+        _ensure_loaded_locked()
+        _save_locked(force=True)
 
 
 def reset(sid: str) -> None:
     with _lock:
         _store.pop(sid, None)
+        _save_locked(force=True)
+
+
+# ---------- 落盘 ----------
+
+def _ensure_loaded_locked() -> None:
+    """首次访问时把磁盘里的会话读回来。文件损坏就当没有，不能让服务起不来。"""
+    global _loaded
+    if _loaded:
+        return
+    _loaded = True
+    try:
+        with open(STATE_FILE, "r", encoding="utf-8") as fh:
+            blob = json.load(fh)
+    except (OSError, ValueError):
+        return
+    if not isinstance(blob, dict):
+        return
+    now = _now()
+    for sid, payload in blob.items():
+        if not isinstance(payload, dict):
+            continue
+        if now - float(payload.get("updated_at") or 0) > SESSION_TTL:
+            continue
+        sess = Session(str(sid))
+        for key, value in payload.items():
+            if key in sess.__dict__:
+                sess.__dict__[key] = value
+        _store[str(sid)] = sess
+    _evict_locked()
+
+
+def _save_locked(force: bool = False) -> None:
+    global _last_save
+    now = _now()
+    if not force and now - _last_save < SAVE_INTERVAL:
+        return
+    _last_save = now
+    blob = {sid: sess.__dict__ for sid, sess in _store.items()}
+    try:
+        folder = os.path.dirname(STATE_FILE)
+        if folder:
+            os.makedirs(folder, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=folder or ".", prefix=".sessions-", suffix=".json")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(blob, fh, ensure_ascii=False, default=str)
+        os.replace(tmp, STATE_FILE)   # 原子替换：写一半断电也不会留半个 JSON
+    except OSError:
+        # 磁盘不可写（只读容器等）：退回纯内存，功能照旧，只是重启会丢
+        pass
 
 
 def _evict_locked() -> None:

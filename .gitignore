@@ -45,3 +45,9 @@ venv/
 # 本地产物：发布标记与项目记忆不入库
 .wbapp_*.genie
 .workbuddy/
+
+# 会话存档（含简历原文，只在服务端本机留一份）
+server/.state/
+
+# 本地副本（内含真实 config.js，不入库）
+web-v1-copy/
