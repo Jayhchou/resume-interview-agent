@@ -18,6 +18,7 @@ desktop.ini
 *.pem
 web/config.js
 web/config.local.js
+web-v1/config.js
 
 # 含个人信息的原始材料 —— 永不入库
 raw/
@@ -43,4 +44,4 @@ venv/
 
 # 本地产物：发布标记与项目记忆不入库
 .wbapp_*.genie
-.workbuddy/memory/
+.workbuddy/

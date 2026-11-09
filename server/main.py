@@ -1,25 +1,40 @@
 """
-AI 面试官 · 后端应用（FastAPI）
-阶段一：简历评分 + 岗位匹配度
-阶段二：面试语义评分
+简历陪练 · 后端应用（FastAPI）
+
+运行形态（见 README「运行形态」）：
+  模型决策循环跑在端侧（平台云模型 keyless 直连，浏览器流式 + 工具调用），
+  确定性工具与状态跑在这里（解析 / 量规算分 / 事实清单 / 事实冻结校验 / DOCX 导出）。
+
+模块：
+  main.py      路由与文件解析
+  agent.py     系统指令拼装 + 工具清单下发
+  tools.py     9 个可执行工具（统一契约）
+  rubric.py    权重、算分、证据强度、改写校验
+  session.py   会话状态（S0–S5，匿名标识隔离）
+  docgen.py    DOCX 生成
 
 监听 PORT 环境变量，绑定 0.0.0.0，用于 WorkBuddy 应用发布。
 """
+import io
+import json
 import os
 import re
-import io
-import asyncio
-import tempfile
-from typing import List, Dict, Any, Optional
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from typing import Any, Dict, List, Optional
+
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-app = FastAPI(title="AI 面试官", version="1.0.0")
+import agent as agent_rt
+import knowledge
+import session as session_store
+import tools as agent_tools
+from docgen import build_resume_docx
 
-# 允许跨域（前端与后端可能不同域）
+app = FastAPI(title="简历陪练", version="2.0.0")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -27,23 +42,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 静态文件目录（托管前端，位于仓库根的 web/ 目录）
 SERVER_DIR = os.path.dirname(os.path.abspath(__file__))
-BASE_DIR = os.path.join(os.path.dirname(SERVER_DIR), "web")
+ROOT_DIR = os.path.dirname(SERVER_DIR)
+WEB_DIR = os.path.join(ROOT_DIR, "web")
+WEB_V1_DIR = os.path.join(ROOT_DIR, "web-v1")
 
 
 # ============ 数据模型 ============
 
 class ResumeRequest(BaseModel):
-    """简历评分请求"""
+    """简历评分请求（规则引擎兜底路径，不依赖模型）"""
     resume_text: str = Field(..., description="简历原文（纯文本）")
     target_company: str = Field("", description="目标公司")
-    target_role: str = Field("", description="目标岗位，如：后端开发 / 前端开发 / 算法工程师")
-    jd_text: str = Field("", description="岗位 JD（可选，为空则用内置岗位能力模型）")
+    target_role: str = Field("", description="目标岗位")
+    jd_text: str = Field("", description="岗位 JD（可选）")
 
 
 class InterviewAnswer(BaseModel):
-    """面试评分请求"""
     role: str = Field(..., description="岗位：backend/frontend/algorithm")
     question: str = Field(..., description="面试问题")
     answer: str = Field(..., description="候选人回答")
@@ -51,28 +66,43 @@ class InterviewAnswer(BaseModel):
 
 
 class TTSRequest(BaseModel):
-    """语音合成请求"""
     text: str = Field(..., description="要合成的文本")
     voice: str = Field("zh-CN-XiaoxiaoNeural", description="音色")
 
 
-class ResumeOptimizeRequest(BaseModel):
-    """简历优化（生成 Word）请求，接收结构化简历内容"""
-    name: str = Field("", description="姓名")
-    target_role: str = Field("", description="求职意向")
-    contact: str = Field("", description="联系方式")
-    education: List[str] = Field(default_factory=list, description="教育背景，每项一条")
-    experiences: List[str] = Field(default_factory=list, description="工作/实习经历，每项一条")
-    projects: List[str] = Field(default_factory=list, description="项目经验，每项一条")
-    skills: List[str] = Field(default_factory=list, description="技能栈")
-    self_eval: str = Field("", description="自我评价")
+class ToolCallRequest(BaseModel):
+    """agent 工具调用"""
+    session_id: str = Field(..., description="匿名会话标识")
+    name: str = Field(..., description="工具名")
+    args: Dict[str, Any] = Field(default_factory=dict, description="工具入参")
 
 
-# ============ 语音合成（TTS） ============
+class PrepareRequest(BaseModel):
+    """对话前预置：把确定性准备（存档 / 锁岗）提前做掉"""
+    session_id: str = Field(..., description="匿名会话标识")
+    module: str = Field("diagnosis", description="当前模块")
+    resume: Optional[Dict[str, Any]] = Field(None, description="结构化简历")
+    target_role: str = Field("", description="目标岗位")
+    jd_text: str = Field("", description="岗位 JD")
+
+
+class InterviewStartRequest(BaseModel):
+    """开新一场面试：清掉上一场的轮次与计数器"""
+    scene: str = Field("", description="专业面 / 行为面 / 压力面")
+    role: str = Field("", description="目标岗位")
+    rounds: int = Field(0, description="计划轮数，0 表示由模型决定")
+
+
+class InterviewAnswerRequest(BaseModel):
+    """前端兜底落库：学生的原话直接进本场面试记录"""
+    answer: str = Field("", description="学生这一轮的原话")
+
+
+# ============ 语音合成 ============
 
 async def tts_synthesize(text: str, voice: str = "zh-CN-XiaoxiaoNeural") -> bytes:
-    """用 edge-tts 合成语音，返回 mp3 字节"""
     import edge_tts
+
     communicate = edge_tts.Communicate(text, voice)
     audio_bytes = io.BytesIO()
     async for chunk in communicate.stream():
@@ -81,123 +111,8 @@ async def tts_synthesize(text: str, voice: str = "zh-CN-XiaoxiaoNeural") -> byte
     return audio_bytes.getvalue()
 
 
-# ============ 简历 Word 生成 ============
+# ============ 岗位能力模型（规则引擎兜底用） ============
 
-def _set_cn_font(run, name='微软雅黑'):
-    """给 run 设置中文字体（兼容不同 python-docx 版本）"""
-    try:
-        run.font.name = name
-        rpr = run._element.get_or_add_rPr()
-        rfonts = rpr.get_or_add_rFonts()
-        from docx.oxml.ns import qn
-        rfonts.set(qn('w:eastAsia'), name)
-    except Exception:
-        pass  # 字体设置失败不影响文档生成
-
-
-def build_resume_docx(req: ResumeOptimizeRequest) -> bytes:
-    """用 python-docx 生成一份格式化的优化简历，返回 docx 字节"""
-    from docx import Document
-    from docx.shared import Pt, RGBColor
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-
-    doc = Document()
-
-    # 设置正文默认字体
-    try:
-        style = doc.styles['Normal']
-        style.font.name = 'Calibri'
-        style.font.size = Pt(10.5)
-    except Exception:
-        pass
-
-    # 姓名（大标题，居中）
-    if req.name:
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = p.add_run(req.name)
-        run.bold = True
-        run.font.size = Pt(22)
-        run.font.name = '微软雅黑'
-
-    # 求职意向 + 联系方式（居中，一行）
-    header_parts = []
-    if req.target_role:
-        header_parts.append(req.target_role)
-    if req.contact:
-        header_parts.append(req.contact)
-    if header_parts:
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = p.add_run(' | '.join(header_parts))
-        run.font.size = Pt(10.5)
-        run.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
-
-    # 分隔线
-    p = doc.add_paragraph()
-    p.paragraph_format.space_before = Pt(4)
-    p.paragraph_format.space_after = Pt(4)
-
-    def add_section(title, items, bullet=True):
-        # 章节标题
-        hp = doc.add_paragraph()
-        hp.paragraph_format.space_before = Pt(10)
-        hp.paragraph_format.space_after = Pt(4)
-        hr = hp.add_run(title)
-        hr.bold = True
-        hr.font.size = Pt(13)
-        hr.font.name = '微软雅黑'
-        hr.font.color.rgb = RGBColor(0x2B, 0x4C, 0x7E)
-        hp.paragraph_format.keep_with_next = True
-        # 内容（强制转字符串，防御前端传入非字符串元素）
-        def _to_str(v):
-            if isinstance(v, str):
-                return v
-            if isinstance(v, dict):
-                return ' · '.join(str(x) for x in v.values() if x)
-            if isinstance(v, (list, tuple)):
-                return '；'.join(_to_str(x) for x in v if x)
-            return str(v) if v is not None else ''
-        if bullet:
-            for item in items:
-                text = _to_str(item)
-                if not text:
-                    continue
-                ip = doc.add_paragraph(text, style='List Bullet')
-                ip.paragraph_format.space_after = Pt(2)
-        else:
-            for item in items:
-                text = _to_str(item)
-                if not text:
-                    continue
-                ip = doc.add_paragraph(text)
-                ip.paragraph_format.space_after = Pt(2)
-
-    # 教育背景
-    if req.education:
-        add_section('教育背景', req.education)
-    # 工作/实习经历
-    if req.experiences:
-        add_section('工作经历', req.experiences)
-    # 项目经验
-    if req.projects:
-        add_section('项目经验', req.projects)
-    # 专业技能
-    if req.skills:
-        add_section('专业技能', req.skills, bullet=False)
-    # 自我评价
-    if req.self_eval:
-        add_section('自我评价', [req.self_eval], bullet=False)
-
-    # 保存到字节流
-    buf = io.BytesIO()
-    doc.save(buf)
-    return buf.getvalue()
-
-
-# ============ 岗位能力模型 ============
-
-# 每个岗位的关键技能词库，用于简历匹配
 ROLE_SKILLS: Dict[str, Dict[str, Any]] = {
     "后端开发": {
         "keywords": [
@@ -205,59 +120,49 @@ ROLE_SKILLS: Dict[str, Dict[str, Any]] = {
             "mysql", "redis", "mongodb", "postgresql", "kafka", "rabbitmq",
             "微服务", "docker", "kubernetes", "k8s", "linux", "分布式", "高并发",
             "jvm", "多线程", "并发", "缓存", "消息队列", "rpc", "grpc", "http",
-            "sql", "索引", "事务", "restful", "api", "nginx", "负载均衡"
+            "sql", "索引", "事务", "restful", "api", "nginx", "负载均衡",
         ],
-        "dimensions": ["技术栈匹配", "项目经验", "工程能力", "深度广度"]
+        "dimensions": ["技术栈匹配", "项目经验", "工程能力", "深度广度"],
     },
     "前端开发": {
         "keywords": [
             "javascript", "typescript", "vue", "react", "angular", "html", "css",
             "webpack", "vite", "node", "小程序", "uniapp", "h5", "前端工程化",
             "组件化", "性能优化", "http", "浏览器", "dom", "canvas", "webgl",
-            "响应式", "跨端", "electron", "npm", "打包", "构建"
+            "响应式", "跨端", "electron", "npm", "打包", "构建",
         ],
-        "dimensions": ["技术栈匹配", "项目经验", "工程能力", "深度广度"]
+        "dimensions": ["技术栈匹配", "项目经验", "工程能力", "深度广度"],
     },
     "算法工程师": {
         "keywords": [
             "机器学习", "深度学习", "神经网络", "transformer", "nlp", "cv",
             "python", "pytorch", "tensorflow", "推荐系统", "数据挖掘", "特征工程",
             "模型训练", "模型部署", "大模型", "llm", "attention", "回归", "分类",
-            "聚类", "调参", "过拟合", "数据清洗", "a/b测试", "指标"
+            "聚类", "调参", "过拟合", "数据清洗", "a/b测试", "指标",
         ],
-        "dimensions": ["技术栈匹配", "项目经验", "模型能力", "深度广度"]
+        "dimensions": ["技术栈匹配", "项目经验", "模型能力", "深度广度"],
     },
 }
 
-# 通用技能词（所有岗位都看）
 COMMON_SKILLS = [
     "沟通", "协作", "团队", "项目", "实习", "比赛", "开源", "证书",
-    "英语", "cet-4", "cet-6", "获奖", "专利", "论文"
+    "英语", "cet-4", "cet-6", "获奖", "专利", "论文",
 ]
 
 
 # ============ 简历解析工具 ============
 
 def extract_skills(text: str, keywords: List[str]) -> List[str]:
-    """从简历文本中提取命中的技能关键词"""
     text_lower = text.lower()
-    hits = []
-    for kw in keywords:
-        if kw in text_lower:
-            hits.append(kw)
-    return hits
+    return [kw for kw in keywords if kw in text_lower]
 
 
 def extract_years(text: str) -> Optional[float]:
-    """粗略提取工作/项目年限（正则匹配"X年"）"""
-    m = re.search(r'(\d+(?:\.\d+)?)\s*年', text)
-    if m:
-        return float(m.group(1))
-    return None
+    m = re.search(r"(\d+(?:\.\d+)?)\s*年", text)
+    return float(m.group(1)) if m else None
 
 
 def extract_education(text: str) -> str:
-    """提取学历层次"""
     text_lower = text.lower()
     if "博士" in text or "phd" in text_lower:
         return "博士"
@@ -270,53 +175,38 @@ def extract_education(text: str) -> str:
     return "未知"
 
 
-# ============ 简历评分引擎 ============
+# ============ 规则引擎兜底（模型不可用时仍可出分，口径与五维一致） ============
 
 def score_resume(req: ResumeRequest) -> Dict[str, Any]:
-    """简历评分 + 岗位匹配度（本地规则算法，MVP 阶段）"""
     text = req.resume_text.strip()
     role = req.target_role.strip() or "后端开发"
 
-    # 1. 确定岗位能力模型
     role_model = None
     for name, model in ROLE_SKILLS.items():
         if name in role or role in name:
-            role_model = model
-            role = name
+            role_model, role = model, name
             break
     if role_model is None:
-        role_model = ROLE_SKILLS["后端开发"]
-        role = "后端开发"
+        role_model, role = ROLE_SKILLS["后端开发"], "后端开发"
 
-    # 2. 提取技能命中
     hit_skills = extract_skills(text, role_model["keywords"])
     common_hits = extract_skills(text, COMMON_SKILLS)
 
-    # 3. 各维度打分（1-10）
     total_kw = max(len(role_model["keywords"]), 1)
     skill_ratio = len(hit_skills) / total_kw
+    tech_score = min(10, round(2 + skill_ratio * 20))
 
-    # 技术栈匹配：命中技能数 vs 岗位要求
-    tech_score = min(10, round(2 + skill_ratio * 20))  # 命中越多越高
-
-    # 项目经验：看项目/实习/开发/主导等经历关键词 + 是否有量化描述
-    project_count = len(re.findall(r'项目|实习|比赛|开发|主导|负责|搭建|上线|优化', text))
-    has_quantified = bool(re.search(r'提升|降低|增长|达到|%|\d+%|万|亿|日均', text))
+    project_count = len(re.findall(r"项目|实习|比赛|开发|主导|负责|搭建|上线|优化", text))
+    has_quantified = bool(re.search(r"提升|降低|增长|达到|%|\d+%|万|亿|日均", text))
     project_score = min(10, round(2 + project_count * 1.2 + (2 if has_quantified else 0)))
 
-    # 教育背景
     edu = extract_education(text)
     edu_score = {"博士": 9, "硕士": 8, "本科": 6, "大专": 4, "未知": 3}.get(edu, 3)
-
-    # 软素质（通用技能命中）
     soft_score = min(10, round(len(common_hits) * 2 + 2))
 
-    # 综合匹配度（加权后转为百分制）
-    # 各维度满分 10 分，加权后得到 0-10，再 ×10 转百分制
     weighted = tech_score * 0.4 + project_score * 0.3 + edu_score * 0.15 + soft_score * 0.15
     match_pct = min(100, round(weighted * 10))
 
-    # 4. 匹配度结论分级
     if match_pct >= 85:
         conclusion = "高度匹配，简历与目标岗位契合度高，可重点准备面试"
     elif match_pct >= 70:
@@ -326,7 +216,6 @@ def score_resume(req: ResumeRequest) -> Dict[str, Any]:
     else:
         conclusion = "匹配度较低，简历与岗位要求差距较大，建议重新定位"
 
-    # 5. 优化建议
     suggestions = []
     if skill_ratio < 0.3:
         suggestions.append("简历中岗位核心技能关键词覆盖不足，建议补充与目标岗位相关的技术栈表述")
@@ -344,90 +233,64 @@ def score_resume(req: ResumeRequest) -> Dict[str, Any]:
         "education": edu,
         "hit_skills": hit_skills,
         "common_hits": common_hits,
-        "scores": {
-            "tech": tech_score,
-            "project": project_score,
-            "education": edu_score,
-        },
+        "scores": {"tech": tech_score, "project": project_score, "education": edu_score},
         "match_pct": match_pct,
         "conclusion": conclusion,
         "suggestions": suggestions,
+        "engine": "rule-fallback",
     }
 
 
-# ============ 面试语义评分引擎 ============
-
 def score_answer(req: InterviewAnswer) -> Dict[str, Any]:
-    """面试回答评分（启发式 + STAR 诊断；真实语义评分预留大模型接口）"""
     answer = req.answer.strip()
     answer_len = len(answer)
-
-    # 长度维度（回答过短扣分）
     length_score = min(10, round(2 + answer_len / 40)) if answer_len < 400 else 10
 
-    # 结构化维度（是否有条理标记）
     structure_markers = ["首先", "其次", "然后", "最后", "第一", "第二", "第三", "总结", "总之", "一方面", "另一方面"]
     structure_hits = sum(1 for m in structure_markers if m in answer)
     structure_score = min(10, round(4 + structure_hits * 1.5))
 
-    # 专业性维度（技术关键词）
     tech_keywords = ["原理", "机制", "实现", "优化", "架构", "性能", "数据", "算法", "设计", "场景", "方案", "对比", "权衡", "取舍"]
     tech_hits = sum(1 for k in tech_keywords if k in answer)
     tech_score = min(10, round(3 + tech_hits * 1.2))
 
-    # STAR 诊断（行为面）
     star = {"S": False, "T": False, "A": False, "R": False}
     if req.q_type == "behavior":
-        if answer_len > 20:
-            star["S"] = True
-        if re.search(r'目标|任务|负责|需要|为了|背景', answer):
-            star["T"] = True
-        if re.search(r'我|开发|搭建|设计|实现|优化|主导|做了|采用|推动', answer):
-            star["A"] = True
-        if re.search(r'提升|降低|减少|增长|达到|%|\d+|万|亿|成果|结果', answer):
-            star["R"] = True
+        star["S"] = answer_len > 20
+        star["T"] = bool(re.search(r"目标|任务|负责|需要|为了|背景", answer))
+        star["A"] = bool(re.search(r"我|开发|搭建|设计|实现|优化|主导|做了|采用|推动", answer))
+        star["R"] = bool(re.search(r"提升|降低|减少|增长|达到|%|\d+|万|亿|成果|结果", answer))
 
-    # 综合评分
     avg = round((length_score + structure_score + tech_score) / 3, 1)
-
-    # 缺失 STAR 要素提示
     star_feedback = []
     if req.q_type == "behavior":
-        star_names = {"S": "情境", "T": "任务", "A": "行动", "R": "结果"}
-        for k, v in star.items():
-            if not v:
-                star_feedback.append(f"缺【{k} {star_names[k]}】要素")
+        names = {"S": "情境", "T": "任务", "A": "行动", "R": "结果"}
+        star_feedback = [f"缺【{k} {names[k]}】要素" for k, v in star.items() if not v]
 
     return {
-        "scores": {
-            "length": length_score,
-            "structure": structure_score,
-            "tech": tech_score,
-            "overall": avg,
-        },
+        "scores": {"length": length_score, "structure": structure_score, "tech": tech_score, "overall": avg},
         "star": star,
         "star_feedback": star_feedback,
-        "feedback": _gen_feedback(avg, req.q_type),
+        "feedback": _gen_feedback(avg),
+        "engine": "rule-fallback",
     }
 
 
-def _gen_feedback(avg: float, q_type: str) -> str:
-    """根据均分生成简短反馈"""
+def _gen_feedback(avg: float) -> str:
     if avg >= 8:
         return "回答质量较高，结构清晰、要点充分，继续保持"
-    elif avg >= 6:
+    if avg >= 6:
         return "回答整体不错，可进一步提升结构化和专业深度"
-    elif avg >= 4:
+    if avg >= 4:
         return "回答基本完整，建议补充更多细节、原理或量化成果"
-    else:
-        return "回答偏简短，建议展开说明，结合具体案例和原理"
+    return "回答偏简短，建议展开说明，结合具体案例和原理"
 
 
-# ============ 简历文件解析 ============
+# ============ 文件解析 ============
 
 def extract_pdf_text(content: bytes) -> str:
-    """从 PDF 字节流提取纯文本"""
     from pypdf import PdfReader
+
     reader = PdfReader(io.BytesIO(content))
     texts = []
     for page in reader.pages:
@@ -441,15 +304,10 @@ def extract_pdf_text(content: bytes) -> str:
 
 
 def extract_docx_text(content: bytes) -> str:
-    """从 DOCX 字节流提取纯文本（含段落和表格）"""
     import docx
+
     doc = docx.Document(io.BytesIO(content))
-    parts = []
-    # 段落
-    for para in doc.paragraphs:
-        if para.text.strip():
-            parts.append(para.text.strip())
-    # 表格
+    parts = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
     for table in doc.tables:
         for row in table.rows:
             cells = [c.text.strip() for c in row.cells if c.text.strip()]
@@ -459,40 +317,208 @@ def extract_docx_text(content: bytes) -> str:
 
 
 def extract_resume_file(filename: str, content: bytes) -> str:
-    """根据扩展名分发解析，返回纯文本"""
     name_lower = filename.lower()
     if name_lower.endswith(".pdf"):
         return extract_pdf_text(content)
     if name_lower.endswith(".docx"):
         return extract_docx_text(content)
     if name_lower.endswith(".doc"):
-        # 老式 .doc 二进制格式，pypdf/python-docx 都不支持，给出明确提示
         raise ValueError("暂不支持 .doc 格式，请另存为 .docx 后再上传")
-    if name_lower.endswith(".txt") or name_lower.endswith(".md"):
+    if name_lower.endswith((".txt", ".md")):
         return content.decode("utf-8", errors="ignore")
     raise ValueError("不支持的文件格式，请上传 PDF、Word(.docx) 或纯文本(.txt)")
 
 
-# ============ 路由 ============
+# ============ 路由：页面与配置 ============
 
 @app.get("/")
 def root():
-    """返回前端页面"""
-    index_path = os.path.join(BASE_DIR, "index.html")
+    index_path = os.path.join(WEB_V1_DIR, "index.html")
     if os.path.exists(index_path):
         return FileResponse(index_path)
-    return {"service": "AI 面试官", "status": "ok", "version": "1.0.0"}
+    return {"service": "简历陪练", "status": "ok", "version": "2.0.0"}
 
+
+@app.get("/config.js")
+def client_config():
+    """前端云服务配置（由 publicConfig 生成，勿手改 endpoint）。"""
+    path = os.path.join(WEB_V1_DIR, "config.js")
+    if os.path.exists(path):
+        return FileResponse(path, media_type="application/javascript")
+    return Response(content="window.APP_CONFIG = window.APP_CONFIG || {};", media_type="application/javascript")
+
+
+@app.get("/api/health")
+def health():
+    return {
+        "status": "healthy",
+        "engine": "agent",
+        "session_store": True,
+        "knowledge": knowledge.stats(),
+    }
+
+
+# ============ 路由：agent 编排 ============
+
+@app.get("/api/agent/manifest")
+def agent_manifest(module: str = "diagnosis", session_id: str = "anon"):
+    """下发系统指令 + 该模块可用工具清单 + 会话状态，由端侧循环消费。"""
+    if not session_id or session_id == "anon":
+        raise HTTPException(status_code=400, detail="缺 session_id：前端需生成匿名会话标识")
+    sess = session_store.get(session_id)
+    payload = agent_rt.manifest(module, sess)
+    return payload
+
+
+@app.post("/api/agent/tool")
+def agent_tool(req: ToolCallRequest):
+    """执行一次工具调用。模型只能通过这里改状态、拿确定性结果。"""
+    if not req.session_id:
+        raise HTTPException(status_code=400, detail="缺 session_id")
+    sess = session_store.get(req.session_id)
+    result = agent_tools.invoke(req.name, req.args or {}, sess)
+    return {
+        "ok": result.get("ok", True),
+        "result": result,
+        "stage": sess.context()["stage"],
+        "tool_log": sess.tool_log[-3:],
+    }
+
+
+def _sig(value: Any) -> str:
+    """规范化指纹：字段顺序不同也算同一份。"""
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+
+
+def _resume_sig(resume: Optional[Dict[str, Any]]) -> str:
+    """简历指纹去掉服务端附加的 _completeness / _missing，避免自比不自等。"""
+    if not isinstance(resume, dict):
+        return ""
+    return _sig({k: v for k, v in resume.items() if not str(k).startswith("_")})
+
+
+@app.post("/api/agent/prepare")
+def agent_prepare(req: PrepareRequest):
+    """会话预置：对话开始前把「存档 / 锁岗」这两个确定性动作做完。
+
+    为什么放在这里：这两个动作没有判断空间（字段填进去、岗位记下来），
+    却要占掉模型一整轮往返。提前做完，模型第一轮就能直接判分，
+    界面上的空白等待随之缩短一轮。幂等——同一份简历重复进入不会重复存档，
+    也不会把已经算好的分数冲掉。判分、找证据、建清单仍然必须由模型发起。
+    """
+    if not req.session_id:
+        raise HTTPException(status_code=400, detail="缺 session_id")
+    sess = session_store.get(req.session_id)
+    prepared: List[Dict[str, Any]] = []
+
+    resume = req.resume if isinstance(req.resume, dict) else None
+    role = str(req.target_role or "").strip()
+    if not role and resume:
+        basic = resume.get("basic")
+        if isinstance(basic, dict):
+            role = str(basic.get("target") or "").strip()
+
+    if resume:
+        sig = _resume_sig(resume)
+        if sig and sig != sess.resume_sig:
+            res = agent_tools.tool_save_resume({"resume": resume, "target_role": role}, sess)
+            if res.get("ok"):
+                sess.resume_sig = sig
+            sess.log_tool("save_resume", bool(res.get("ok")), f"prefetch {res.get('resume_version', '')} 完整度 {res.get('completeness', 0)}%")
+            prepared.append({"name": "save_resume", "ok": bool(res.get("ok")), "result": res})
+
+    if role:
+        jd_text = str(req.jd_text or "").strip()
+        sig = _sig({"role": role, "jd": jd_text})
+        if sig != sess.jd_sig:
+            res = agent_tools.tool_lock_jd({"target_role": role, "jd_text": jd_text}, sess)
+            if res.get("ok"):
+                sess.jd_sig = sig
+            sess.log_tool("lock_jd", bool(res.get("ok")), f"prefetch 锁定 {role}")
+            prepared.append({"name": "lock_jd", "ok": bool(res.get("ok")), "result": res})
+
+    payload = agent_rt.manifest(req.module, sess)
+    payload["prepared"] = prepared
+    return payload
+
+
+@app.get("/api/agent/session/{sid}")
+def agent_session(sid: str):
+    sess = session_store.get(sid)
+    ctx = sess.context()
+    sheet = sess.fact_sheet or {}
+    ctx["fact_items"] = sheet.get("items", [])
+    ctx["career_evidence"] = sess.career_evidence   # 刷新页面后靠它还原证据区
+    ctx["report"] = sess.report
+    return ctx
+
+
+@app.post("/api/agent/session/{sid}/reset")
+def agent_session_reset(sid: str):
+    session_store.reset(sid)
+    return {"ok": True, "reset": sid}
+
+
+@app.post("/api/agent/session/{sid}/interview/start")
+def agent_interview_start(sid: str, req: InterviewStartRequest):
+    """开新一场面试：清空上一场的轮次、计数器与追问记录。
+
+    前端点「开始面试」时先调这里。少了这一步，同一会话里的第二场会接着
+    上一场的 round_no 数下去：第一题就被判 reached_limit，界面直接显示
+    「第 6 / 5 轮」，学生只能刷新页面。
+    """
+    sess = session_store.get(sid)
+    if not sess.fact_sheet:
+        return {"ok": False, "error": "还没有事实清单，先完成简历诊断", "stage": sess.context()["stage"]}
+    # 轮数在这里就收敛：前端传 "" / 0 / 越界都不能建出场次（收敛规则见 _clamp_rounds）
+    rounds = agent_tools._clamp_rounds(req.rounds)
+    agent_tools.reset_interview(sess, str(req.scene or "").strip(), str(req.role or "").strip(), rounds)
+    sess.report = None
+    sess.log_tool("start_interview", True, f"新一场面试 · 计划 {rounds} 轮")
+    return {"ok": True, "stage": sess.context()["stage"], "rounds_planned": sess.interview["rounds_planned"]}
+
+
+@app.post("/api/agent/session/{sid}/interview/answer")
+def agent_interview_answer(sid: str, req: InterviewAnswerRequest):
+    """落一条学生回答（前端在发模型之前先调这里）。
+
+    模型那一路不可靠：它常只输出点评、跳过 log_interview_turn(answer=…)，
+    于是 answered 不增长、轮次不前进、复盘少题。学生原话前端本来就有，
+    由服务端直接收；模型随后若也提交同一句，工具侧会按指纹去重。
+    """
+    sess = session_store.get(sid)
+    res = agent_tools.record_answer(sess, req.answer)
+    if res.get("ok"):
+        sess.log_tool(
+            "record_answer",
+            True,
+            "回答已落库" if not res.get("deduped") else "回答重复，已忽略",
+        )
+    return res
+
+
+@app.get("/api/agent/download/{token}")
+def agent_download(token: str):
+    item = agent_tools.take_doc(token)
+    if not item:
+        raise HTTPException(status_code=404, detail="下载链接已过期，请重新导出")
+    blob, filename = item
+    return Response(
+        content=blob,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+# ============ 路由：兼容旧接口 ============
 
 @app.get("/api/roles")
 def list_roles():
-    """返回支持的岗位列表"""
     return {"roles": list(ROLE_SKILLS.keys())}
 
 
 @app.post("/api/resume/upload")
 async def resume_upload(file: UploadFile = File(...)):
-    """上传简历文件（PDF/DOCX/TXT），解析并返回纯文本"""
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="文件内容为空")
@@ -503,7 +529,7 @@ async def resume_upload(file: UploadFile = File(...)):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"文件解析失败：{str(e)}")
+        raise HTTPException(status_code=400, detail=f"文件解析失败：{e}")
     if not text.strip():
         raise HTTPException(status_code=400, detail="未能从文件中提取到文本，请检查文件是否为扫描图片版（扫描件需 OCR）")
     return {"filename": file.filename, "text": text, "length": len(text)}
@@ -511,25 +537,20 @@ async def resume_upload(file: UploadFile = File(...)):
 
 @app.post("/api/resume/score")
 def resume_score(req: ResumeRequest):
-    """简历评分 + 匹配度"""
     if not req.resume_text.strip():
         raise HTTPException(status_code=400, detail="简历内容不能为空")
-    result = score_resume(req)
-    return result
+    return score_resume(req)
 
 
 @app.post("/api/interview/score")
 def interview_score(req: InterviewAnswer):
-    """面试回答评分"""
     if not req.answer.strip():
         raise HTTPException(status_code=400, detail="回答内容不能为空")
-    result = score_answer(req)
-    return result
+    return score_answer(req)
 
 
 @app.post("/api/tts")
 async def tts(req: TTSRequest):
-    """文字转语音，返回 mp3 音频"""
     text = req.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="文本不能为空")
@@ -538,42 +559,35 @@ async def tts(req: TTSRequest):
     try:
         audio = await tts_synthesize(text, req.voice)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"语音合成失败：{str(e)}")
+        raise HTTPException(status_code=500, detail=f"语音合成失败：{e}")
     if not audio:
         raise HTTPException(status_code=500, detail="语音合成为空")
     return Response(content=audio, media_type="audio/mpeg")
 
 
 @app.post("/api/resume/optimize")
-def resume_optimize(req: ResumeOptimizeRequest):
-    """生成优化后的简历 Word 文档，返回 docx 字节"""
+def resume_optimize(payload: Dict[str, Any]):
     try:
-        docx_bytes = build_resume_docx(req)
+        docx_bytes = build_resume_docx(payload)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"简历生成失败：{str(e)}")
-    if not docx_bytes:
-        raise HTTPException(status_code=500, detail="简历生成为空")
-    # 文件名用 ASCII（响应头 latin-1 限制），实际下载文件名由前端 downloadBlob 指定
-    filename = "resume.docx"
+        raise HTTPException(status_code=500, detail=f"简历生成失败：{e}")
     return Response(
         content=docx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
+        headers={"Content-Disposition": "attachment; filename=resume.docx"},
     )
 
 
-@app.get("/api/health")
-def health():
-    return {"status": "healthy"}
+# ============ 静态文件挂载（必须放在所有 API 路由之后）============
+
+# 根路径给智能体版前端（web-v1），早期单页版本保留在 /legacy 作对照
+if os.path.isdir(WEB_DIR):
+    app.mount("/legacy", StaticFiles(directory=WEB_DIR, html=True), name="legacy")
+app.mount("/", StaticFiles(directory=WEB_V1_DIR, html=True), name="root")
 
 
-# 挂载静态文件（放在所有 API 路由之后，避免拦截 /api）
-# 托管 index.html 及同目录资源
-app.mount("/static", StaticFiles(directory=BASE_DIR), name="static")
-
-
-# ============ 启动入口 ============
 if __name__ == "__main__":
     import uvicorn
+
     port = int(os.environ.get("PORT", "8000"))
     uvicorn.run(app, host="0.0.0.0", port=port)

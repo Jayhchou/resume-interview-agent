@@ -37,8 +37,9 @@
 | [`docs/01-需求分析.md`](docs/01-需求分析.md) | 赛题范围、7 类业务场景 + 数据边界条款、25 条功能需求、技术需求、附录接口约定 | 队长 |
 | [`docs/02-架构设计.md`](docs/02-架构设计.md) | 前后端分层、三段系统指令、知识资产构成、数据流、部署 | 队长 |
 | [`docs/03-逻辑梳理.md`](docs/03-逻辑梳理.md) | 主流程状态机、五维评分口径、事实清单字段、追问策略、拒答与兜底 | 队长 + 队员 |
+| [`docs/04-智能体实现.md`](docs/04-智能体实现.md) | 决策循环、九个工具契约、状态机强制、本地运行与实测记录 | 后端组 |
 
-需求分析（01）是**唯一真本**，架构（02）与逻辑（03）必须与它对齐；三份文档口径不一致时，以 01 为准并即时修正其余两份。
+需求分析（01）是**唯一真本**，其余文档必须与它对齐；三份文档口径不一致时，以 01 为准并即时修正其余。运行形态以 04 为准（02 写作时模型网关还假设在服务端）。
 
 ---
 
@@ -48,36 +49,30 @@
 resume-interview-agent/
 ├── README.md                      本文件
 ├── .gitignore                     依赖、密钥、原始材料不入库
-├── docs/                          文档
-│   ├── 01-需求分析.md
-│   ├── 02-架构设计.md
-│   └── 03-逻辑梳理.md
-├── web/                           前端页面（待落地）
-│   ├── index.html                 工作区 / 对话 / 报告三块
-│   ├── app.js                     交互与接口调用
-│   └── report.css                  报告区与图表样式
-├── server/                        后端服务（待落地）
-│   ├── main.py                    路由、解析、模型调用
-│   ├── session.py                 会话状态与版本号
+├── docs/                          文档（01–03 设计，04 实现）
+├── server/                        后端：智能体工具层 + 状态 + 量规
+│   ├── main.py                    路由、文件解析、agent 三个端点
+│   ├── agent.py                   系统指令拼装 + 按模块下发工具表
+│   ├── tools.py                   九个工具（统一 ok/error 契约）
+│   ├── rubric.py                  权重、总分、证据强度、改写冻结校验
+│   ├── session.py                 会话状态 S0–S5，匿名标识隔离
+│   ├── docgen.py                  DOCX 生成
 │   └── prompts/                   三段系统指令
 │       ├── diagnosis.md           诊断（含定向改写）
 │       ├── interview.md           模拟面试
 │       └── review.md              复盘出报告
-├── references/                    知识资产（随代码交付，待落地）
-│   ├── scoring-rubric.md          五维分档与行为锚点
-│   ├── field-schema.md            五类字段定义
-│   ├── job-catalog.md             岗位基线库
-│   ├── sentence-bank.md           改写句式库
-│   ├── it-question-bank.md        题库（岗位 / 难度 / 考点）
-│   ├── star-method.md             STAR 判定与示例
-│   ├── fact-schema.md             事实清单六字段
-│   ├── report-template.md         报告 JSON 与 HTML 模板
-│   └── gap-rules.md               卡点判定与回写
-└── data/
-    └── samples/                   虚构简历与空白模板
+├── web-v1/                        前端（**唯一在维护的版本**，服务挂在根路径 `/`）
+│   ├── index.html                 简历 / 面试两块同页
+│   ├── agent.js                   端侧决策循环：想 → 调工具 → 看结果
+│   ├── app.js                     交互与渲染
+│   ├── styles.css                 样式
+│   └── config.js                  publicConfig（gitignore）
+├── web/                           早期单页版本（**已冻结**，只挂在 `/legacy` 供对照，不再改）
+└── references/                    知识资产（量规、题库、句式库）
 ```
 
-当前进度：`docs/` 已完成，`web/`、`server/`、`references/`、`data/` 待落地。
+当前进度：`docs/`（01–04）、`server/`（工具层与状态机）、`web-v1/`（智能体接入）已完成；`references/` 仅三份落地，`data/samples/` 待补。
+运行方式见 [`docs/04-智能体实现.md`](docs/04-智能体实现.md) §六。
 
 ---
 
@@ -99,7 +94,7 @@ resume-interview-agent/
 
 | 区域 | 内容 | 谁改 |
 |---|---|---|
-| 前端 | `web/` | 前端组 |
+| 前端 | `web-v1/`（`web/` 已冻结，不再改） | 前端组 |
 | 后端 | `server/` | 后端组 |
 | 知识资产 | `references/` | 按资料专人负责，一份一个 owner |
 | 文档 | `docs/` | 各章负责人 |
