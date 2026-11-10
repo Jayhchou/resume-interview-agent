@@ -2193,7 +2193,7 @@
       const res = await fetch(apiBase() + "/api/resume/optimize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(state.resume)
+        body: JSON.stringify({ ...state.resume, _template: paperTemplate() })
       });
       if (!res.ok) {
         const raw = await res.text();
@@ -2202,7 +2202,11 @@
         throw new Error(msg);
       }
       const blob = await res.blob();
-      const name = ((state.resume.basic && state.resume.basic.name) || "简历") + ".docx";
+      const basic = state.resume.basic || {};
+      const nm = basic.name || "";
+      const tg = basic.target || "";
+      const base = nm && tg ? `${nm}-${tg}` : (nm || tg || "简历");
+      const name = base + ".docx";
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
