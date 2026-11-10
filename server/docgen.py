@@ -321,21 +321,132 @@ def _build_classic(doc, b, sections):
                 _set_font(r, Pt(10.5), color=INK_SOFT)
 
 
+def _set_cell_shading(cell, fill_hex):
+    """给单元格设置背景色。"""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    tcPr = cell._tc.get_or_add_tcPr()
+    shd = OxmlElement('w:shd')
+    shd.set(qn('w:val'), 'clear')
+    shd.set(qn('w:fill'), fill_hex)
+    tcPr.append(shd)
+
+
+def _set_cell_width(cell, cm):
+    """精确设置单元格宽度（w:tcW）。"""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    tcPr = cell._tc.get_or_add_tcPr()
+    tcW = tcPr.find(qn('w:tcW'))
+    if tcW is None:
+        tcW = OxmlElement('w:tcW')
+        tcPr.append(tcW)
+    tcW.set(qn('w:type'), 'dxa')
+    tcW.set(qn('w:w'), str(int(cm * 567)))  # 1cm ≈ 567 twips
+
+
+def _set_cell_margins(cell, top=80, bottom=80, left=120, right=120):
+    """设置单元格内边距（twips）。"""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    tcPr = cell._tc.get_or_add_tcPr()
+    mar = OxmlElement('w:tcMar')
+    for edge, val in (('top', top), ('bottom', bottom), ('left', left), ('right', right)):
+        el = OxmlElement(f'w:{edge}')
+        el.set(qn('w:w'), str(val))
+        el.set(qn('w:type'), 'dxa')
+        mar.append(el)
+    tcPr.append(mar)
+
+
+def _hide_table_borders(table):
+    """隐藏表格所有边框。"""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    tbl = table._tbl
+    tblPr = tbl.tblPr
+    borders = OxmlElement('w:tblBorders')
+    for edge in ('top', 'left', 'bottom', 'right', 'insideH', 'insideV'):
+        el = OxmlElement(f'w:{edge}')
+        el.set(qn('w:val'), 'none')
+        el.set(qn('w:sz'), '0')
+        el.set(qn('w:space'), '0')
+        borders.append(el)
+    tblPr.append(borders)
+
+
+def _set_table_width(table, cm):
+    """设置表格总宽度（w:tblW），确保铺满指定宽度。"""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    tbl = table._tbl
+    tblPr = tbl.tblPr
+    tblW = tblPr.find(qn('w:tblW'))
+    if tblW is None:
+        tblW = OxmlElement('w:tblW')
+        tblPr.append(tblW)
+    tblW.set(qn('w:type'), 'dxa')
+    tblW.set(qn('w:w'), str(int(cm * 567)))
+
+
+def _set_table_fixed_layout(table):
+    """设置表格为固定布局（w:tblLayout=fixed），否则 Word 按内容重算列宽。"""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    tbl = table._tbl
+    tblPr = tbl.tblPr
+    layout = tblPr.find(qn('w:tblLayout'))
+    if layout is None:
+        layout = OxmlElement('w:tblLayout')
+        tblPr.append(layout)
+    layout.set(qn('w:type'), 'fixed')
+
+
+def _set_grid_cols(table, widths_cm):
+    """设置表格每列的基准宽（w:gridCol），与 tcW 一致。"""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    tbl = table._tbl
+    grid = tbl.find(qn('w:tblGrid'))
+    if grid is None:
+        return
+    grid_cols = grid.findall(qn('w:gridCol'))
+    for i, cm in enumerate(widths_cm):
+        if i < len(grid_cols):
+            grid_cols[i].set(qn('w:w'), str(int(cm * 567)))
+
+
 def _build_modern(doc, b, sections):
-    """现代双栏：渐变页首 + 主辅双栏。"""
+    """现代双栏：渐变页首（段落底纹）+ 主辅双栏（固定布局表格）。
+
+    关键：页首用独立段落（带段落底纹），双栏用独立表格并设置
+    tblLayout=fixed + gridCol + tcW 三层，避免 Word 按内容重算列宽。
+    不再用 merge 合并单元格——合并会导致 Word 忽略列宽。
+    """
     from docx.shared import Pt, Cm
     from docx.oxml.ns import qn
     from docx.oxml import OxmlElement
 
-    # 渐变页首（Word 段落底纹模拟渐变，用纯色近似 accent）
+    # 页面内容区宽度：A4 210mm - 左右边距(18mm*2) ≈ 174mm ≈ 16.5cm
+    TOTAL_W = 16.5
+    MAIN_W = 12.3   # 主栏宽
+    ASIDE_W = 4.2   # 侧栏宽（约 25%，对齐前端 112px 侧栏）
+
+    # ===== 页首：独立段落 + 段落底纹 =====
     head = doc.add_paragraph()
-    head.paragraph_format.space_after = Pt(10)
+    head.paragraph_format.space_after = Pt(6)
+    # 段落底纹（模拟渐变，用纯色 accent）
     pPr = head._p.get_or_add_pPr()
     shd = OxmlElement('w:shd')
     shd.set(qn('w:val'), 'clear')
     shd.set(qn('w:fill'), '625BF6')
     pPr.append(shd)
-    # 页首内的姓名/意向/联系方式
+    # 段落内边距（模拟 cell padding）
+    ind = pPr.makeelement(qn('w:ind'), {})
+    ind.set(qn('w:left'), '160')
+    ind.set(qn('w:right'), '160')
+    pPr.append(ind)
+
     if b["name"]:
         r = head.add_run(b["name"])
         _set_font(r, Pt(18), bold=True, color=(0xFF, 0xFF, 0xFF))
@@ -348,57 +459,69 @@ def _build_modern(doc, b, sections):
         r = head.add_run(b["contact"])
         _set_font(r, Pt(9), bold=False, color=(0xD8, 0xD4, 0xFB))
 
-    # 双栏：主栏（education/internships/projects/summary）+ 侧栏（skills）
-    # Word 用表格实现双栏
+    # ===== 双栏：固定布局表格 =====
     table = doc.add_table(rows=1, cols=2)
+    table.alignment = 1
     table.autofit = False
-    # 去掉表格边框
-    tbl = table._tbl
-    tblPr = tbl.tblPr
-    borders = OxmlElement('w:tblBorders')
-    for edge in ('top', 'left', 'bottom', 'right', 'insideH', 'insideV'):
-        el = OxmlElement(f'w:{edge}')
-        el.set(qn('w:val'), 'none')
-        borders.append(el)
-    tblPr.append(borders)
+    _hide_table_borders(table)
+    _set_table_fixed_layout(table)
+    _set_table_width(table, TOTAL_W)
 
     main_cell = table.cell(0, 0)
     aside_cell = table.cell(0, 1)
-    main_cell.width = Cm(13.5)
-    aside_cell.width = Cm(3.5)
+    _set_cell_width(main_cell, MAIN_W)
+    _set_cell_width(aside_cell, ASIDE_W)
+    _set_grid_cols(table, [MAIN_W, ASIDE_W])
+    _set_cell_margins(main_cell, top=80, bottom=80, left=140, right=140)
+    _set_cell_margins(aside_cell, top=80, bottom=80, left=100, right=100)
 
-    # 主栏
-    mp = main_cell.paragraphs[0]
+    # 侧栏左侧浅色竖线
+    aside_tcPr = aside_cell._tc.get_or_add_tcPr()
+    aside_borders = OxmlElement('w:tcBorders')
+    left_b = OxmlElement('w:left')
+    left_b.set(qn('w:val'), 'single')
+    left_b.set(qn('w:sz'), '6')
+    left_b.set(qn('w:space'), '0')
+    left_b.set(qn('w:color'), 'E3E7F0')
+    aside_borders.append(left_b)
+    aside_tcPr.append(aside_borders)
+
+    # 主栏内容
     for key, title in [("education", "教育背景"), ("internships", "实习经历"), ("projects", "项目经历"), ("summary", "自我评价")]:
         if key == "education" and b["education"]:
-            _add_title_in(main_cell, title, "modern")
+            _add_title_in(main_cell, title)
             for e in b["education"]:
                 _add_entry_in(main_cell, e["head"], e["time"], e["sub"], [])
         elif key == "internships" and b["internships"]:
-            _add_title_in(main_cell, title, "modern")
+            _add_title_in(main_cell, title)
             for it in b["internships"]:
                 _add_entry_in(main_cell, it["head"], it["time"], it["role"], it["bullets"])
         elif key == "projects" and b["projects"]:
-            _add_title_in(main_cell, title, "modern")
+            _add_title_in(main_cell, title)
             for pj in b["projects"]:
                 _add_entry_in(main_cell, pj["head"], pj["time"], pj["role"], pj["bullets"])
         elif key == "summary" and b["summary"]:
-            _add_title_in(main_cell, title, "modern")
+            _add_title_in(main_cell, title)
             p = main_cell.add_paragraph()
             r = p.add_run(b["summary"])
             _set_font(r, Pt(10.5), color=INK_SOFT)
 
     # 侧栏：技能证书
     if b["skills"] or b["certs"]:
-        _add_title_in(aside_cell, "技能证书", "modern")
+        _add_title_in(aside_cell, "技能证书")
         for t in b["skills"]:
             p = aside_cell.add_paragraph()
+            p.paragraph_format.space_after = Pt(3)
             r = p.add_run(t)
             _set_font(r, Pt(10), bold=True, color=ACCENT)
         for c in b["certs"]:
             p = aside_cell.add_paragraph()
+            p.paragraph_format.space_after = Pt(3)
             r = p.add_run(c)
             _set_font(r, Pt(10), bold=True, color=MINT)
+
+    # 表格后补一个空段，避免表格紧贴文档末尾
+    doc.add_paragraph()
 
 
 def _build_minimal(doc, b, sections):
@@ -445,7 +568,7 @@ def _build_minimal(doc, b, sections):
 
 
 # modern 双栏用（在单元格内加标题/条目）
-def _add_title_in(cell, text, template):
+def _add_title_in(cell, text):
     from docx.shared import Pt
     from docx.oxml.ns import qn
     p = cell.add_paragraph()
