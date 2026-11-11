@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>简历陪练 · 智能体版</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231f6f5c'/%3E%3Ctext x='16' y='22' font-size='16' text-anchor='middle' fill='white' font-family='sans-serif'%3E%E9%99%AA%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="styles.css?v=33">
+  <link rel="stylesheet" href="styles.css?v=34">
 </head>
 <body>
   <!-- = 内置图标 = -->
@@ -115,7 +115,7 @@
           </div>
           <div class="toolbar-actions">
             <button class="btn ghost" id="exportDocx"><svg aria-hidden="true"><use href="#i-doc"/></svg>导出 DOCX</button>
-            <button class="btn ghost" id="gotoAnalysis"><svg aria-hidden="true"><use href="#i-target"/></svg>五维图分析</button>
+            <button class="btn ghost" id="gotoAnalysis"><svg aria-hidden="true"><use href="#i-target"/></svg>简历五维</button>
             <button class="btn primary" id="gotoInterview"><svg aria-hidden="true"><use href="#i-chat"/></svg>进入 AI 面试</button>
           </div>
         </header>
@@ -147,8 +147,9 @@
         <header class="subview-head with-actions">
           <div>
             <p class="eyebrow">简历模块 · 诊断</p>
-            <h1>五维图分析</h1>
-            <p class="sub">基于当前简历内容实时计算，编辑保存后回到这里分数会更新。</p>
+            <h1>简历五维分析</h1>
+            <!-- 「实时计算」与角标「服务端量分」打架过：口径只说一遍，以角标为准 -->
+            <p class="sub">评的是<strong>简历本身</strong>：专业基础 / 实践经历 / 成果产出 / 沟通表达 / 协作推进。分数由服务端量规按当前简历计算，编辑保存后回到这里分数会更新。</p>
           </div>
           <div class="head-actions">
             <button class="btn ghost" id="analysisBack"><svg aria-hidden="true"><use href="#i-back"/></svg>回编辑</button>
@@ -160,7 +161,7 @@
             <div class="score-total">
               <span class="score-num" id="analysisTotal">0</span>
               <span class="score-pending" id="analysisPending" hidden><i class="dot-spin" aria-hidden="true"></i>分析中</span>
-              <span class="score-label">当前总分</span>
+              <span class="score-label" title="只评简历文本质量（专业基础/实践经历/成果产出/沟通表达/协作推进），与复盘页的面试表达分口径不同，不可直接比较">简历质量总分</span>
             </div>
             <div class="radar-box" id="analysisRadar"></div>
           </section>
@@ -254,9 +255,10 @@
             <section class="card score-card">
               <div class="score-total">
                 <span class="score-num" id="reviewTotal">0</span>
-                <span class="score-label">表达总分</span>
+                <span class="score-label" title="评的是这场面试的回答：技术深度/项目经验/表达逻辑/行为素质/岗位匹配。与简历诊断的「简历质量总分」口径不同，不可直接比较">面试表达总分</span>
               </div>
               <div class="radar-box" id="reviewRadar"></div>
+              <p class="score-note">口径：面试表达五维（技术深度 / 项目经验 / 表达逻辑 / 行为素质 / 岗位匹配），与上方简历诊断的总分不可直接比较。</p>
             </section>
             <section class="card star-card">
               <h2>STAR 覆盖</h2>
@@ -327,6 +329,6 @@
   <!-- 云 SDK 本地托管：jsdelivr 在国内网络常被拦，线上必须自带 -->
   <script src="vendor/workbuddy-cloud-sdk.global.js"></script>
   <script src="agent.js?v=23"></script>
-  <script src="app.js?v=42"></script>
+  <script src="app.js?v=43"></script>
 </body>
 </html>

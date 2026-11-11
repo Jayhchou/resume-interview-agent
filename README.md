@@ -68,10 +68,11 @@ resume-interview-agent/
 │   ├── styles.css                 样式
 │   └── config.js                  publicConfig（gitignore）
 ├── web/                           早期单页版本（**已冻结**，只挂在 `/legacy` 供对照，不再改）
-└── references/                    知识资产（量规、题库、句式库）
+├── server/kb/                     **运行时知识库**（roles/questions/anchors/writing.json，由 build.py 从源头资料生成，knowledge.py 只读这里）
+└── references/                    知识源头资料（量规、题库、句式库设计稿；**运行时不读取**）
 ```
 
-当前进度：`docs/`（01–04）、`server/`（工具层与状态机）、`web-v1/`（智能体接入）已完成；`references/` 仅三份落地，`data/samples/` 待补。
+当前进度：`docs/`（01–04）、`server/`（工具层与状态机）、`web-v1/`（智能体接入）已完成；运行时知识库 `server/kb/` 四份 JSON 已落地（源头资料 `references/` 三份），`data/samples/` 待补。
 运行方式见 [`docs/04-智能体实现.md`](docs/04-智能体实现.md) §六。
 
 ---
@@ -96,7 +97,7 @@ resume-interview-agent/
 |---|---|---|
 | 前端 | `web-v1/`（`web/` 已冻结，不再改） | 前端组 |
 | 后端 | `server/` | 后端组 |
-| 知识资产 | `references/` | 按资料专人负责，一份一个 owner |
+| 知识库 | `server/kb/`（运行时 JSON；源头资料在 `references/`） | 按资料专人负责，改源稿后跑 `server/kb/build.py` 重新生成 |
 | 文档 | `docs/` | 各章负责人 |
 
 不交叉修改。`server/prompts/` 与平台运行行为强相关，改动须经队长确认。

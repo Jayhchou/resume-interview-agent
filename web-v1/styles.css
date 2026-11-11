@@ -456,6 +456,8 @@ svg[aria-hidden] { width: 18px; height: 18px; fill: none; stroke: currentColor; 
 .score-total { padding: 4px 0 8px; display: flex; flex-direction: column; align-items: center; }
 .score-num { font-size: 58px; font-weight: 800; color: var(--accent-deep); line-height: 1.1; }
 .score-num[hidden] { display: none; }
+/* 复盘雷达图下的口径说明：诊断五维与面试五维同名不同义，必须写清不可直接比较 */
+.score-note { font-size: 11.5px; color: var(--muted); line-height: 1.5; padding: 6px 12px 0; border-top: 1px dashed var(--line); margin-top: 8px; }
 /* 分数还没回来时用「分析中 + 转圈」占住这块位置，避免只有一个省略号被当成卡死 */
 .score-pending {
   display: inline-flex; align-items: center; gap: 9px;
@@ -770,6 +772,9 @@ svg[aria-hidden] { width: 18px; height: 18px; fill: none; stroke: currentColor; 
   .brand-name { display: none; }
   .module-nav { flex-direction: row; }
   .nav-item { flex-direction: row; padding: 8px 14px; }
+  /* 320 宽：「AI 面试」四字被压成两行竖排。侧栏是横向排布的，
+     文字一旦换行就把整条 nav 撑爆，所以禁止换行、同时收窄内边距。 */
+  .nav-item span { white-space: nowrap; }
   .nav-item.active::before { left: 50%; top: auto; bottom: -9px; transform: translateX(-50%); width: 22px; height: 3px; border-radius: 3px 3px 0 0; }
   .nav-foot { display: none; }
   .app-main { margin-left: 0; }
@@ -779,6 +784,18 @@ svg[aria-hidden] { width: 18px; height: 18px; fill: none; stroke: currentColor; 
   .analysis-layout { grid-template-columns: 1fr; height: auto; }
   .radar-box { width: min(100%, 380px); margin: 0 auto; }
   .subview { padding: 18px 16px 24px; }
+}
+/* ≤480：320 档实测两处裁切——导航文字竖排、预览缩放控件超出 9px。
+   再收一档内边距，缩放条允许换行兜底，按钮 padding 收窄。 */
+@media (max-width: 480px) {
+  .side-nav { padding: 8px 10px; }
+  .brand { margin-right: 8px; }
+  .nav-item { padding: 8px 9px; }
+  .nav-item svg { width: 18px; height: 18px; }
+  .nav-item span { font-size: 11.5px; }
+  .preview-bar { flex-wrap: wrap; row-gap: 6px; }
+  .zoom-group { margin-left: auto; }
+  .zoom-group button { padding: 5px 9px; }
 }
 
 /* ===== Agent 证据区（score_career / build_fact_sheet 结果）===== */
