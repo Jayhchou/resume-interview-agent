@@ -57,6 +57,12 @@ resume-interview-agent/
 │   ├── rubric.py                  权重、总分、证据强度、改写冻结校验
 │   ├── session.py                 会话状态 S0–S5，匿名标识隔离
 │   ├── docgen.py                  DOCX 生成
+│   ├── kb/                        知识资产（岗位基线 / 题库 / 评分锚点 / 简历写法）
+│   │   ├── roles.json             岗位能力基线
+│   │   ├── questions.json         分岗位分层题库
+│   │   ├── anchors.json           五维评分锚点
+│   │   ├── writing.json           简历写法（动词 / 量化 / 反例）
+│   │   └── build.py               从知识库 md 抽取生成 json
 │   └── prompts/                   三段系统指令
 │       ├── diagnosis.md           诊断（含定向改写）
 │       ├── interview.md           模拟面试
@@ -67,11 +73,10 @@ resume-interview-agent/
 │   ├── app.js                     交互与渲染
 │   ├── styles.css                 样式
 │   └── config.js                  publicConfig（gitignore）
-├── web/                           早期单页版本（**已冻结**，只挂在 `/legacy` 供对照，不再改）
-└── references/                    知识资产（量规、题库、句式库）
+└── web/                           早期单页版本（**已冻结**，只挂在 `/legacy` 供对照，不再改）
 ```
 
-当前进度：`docs/`（01–04）、`server/`（工具层与状态机）、`web-v1/`（智能体接入）已完成；`references/` 仅三份落地，`data/samples/` 待补。
+当前进度：`docs/`（01–04）、`server/`（工具层与状态机）、`web-v1/`（智能体接入）已完成；`server/kb/` 四类知识资产（岗位 / 题库 / 锚点 / 写法）已落地，`data/samples/` 待补。
 运行方式见 [`docs/04-智能体实现.md`](docs/04-智能体实现.md) §六。
 
 ---
@@ -96,7 +101,7 @@ resume-interview-agent/
 |---|---|---|
 | 前端 | `web-v1/`（`web/` 已冻结，不再改） | 前端组 |
 | 后端 | `server/` | 后端组 |
-| 知识资产 | `references/` | 按资料专人负责，一份一个 owner |
+| 知识资产 | `server/kb/` | 按资料专人负责，一份一个 owner |
 | 文档 | `docs/` | 各章负责人 |
 
 不交叉修改。`server/prompts/` 与平台运行行为强相关，改动须经队长确认。
