@@ -361,12 +361,13 @@ def tool_score_career(args: Dict[str, Any], sess: Session) -> Dict[str, Any]:
             ),
         }
 
-    # 稳定性：同一份简历（版本没变）两次判分差超过 5 分，说明判分依据在漂。
+    # 稳定性：同一份简历（版本没变）两次判分差超过 2 分，说明判分依据在漂。
+    # 阈值原来是 5：73/74/75 这种 2 分抖动拦不住，学生看到的是「同一份简历分数会变」。
     # 同样只退回一次，并给出上次的分数让模型对照，而不是让它重新猜一遍。
     total_now = rubric.weighted_total(scores, rubric.CAREER_DIMS)
     previous = sess.career_total
     same_resume = not sess.career_history or sess.career_history[-1].get("resume_version") == f"V{sess.resume_version}"
-    if previous and same_resume and abs(total_now - previous) > 5 and not sess.career_drift_blocked:
+    if previous and same_resume and abs(total_now - previous) > 2 and not sess.career_drift_blocked:
         sess.career_drift_blocked = 1
         return {
             "ok": False,

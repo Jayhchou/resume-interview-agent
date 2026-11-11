@@ -99,6 +99,10 @@
     nav: "resume",
     resumeView: "entry",
     templateId: "classic",
+    // 导出/预览用的版式，与「简历从哪来」（source）解耦。
+    // 之前两者共用一个字段：粘贴或上传会把 source 改成 paste/upload，
+    // 于是选过的模板被静默覆盖，导出一律回落到经典单栏。
+    exportTemplate: "classic",
     source: null,
     resume: null,
     selectedModule: "basic",
@@ -151,6 +155,19 @@
     return resume;
   }
   if (state.resume) normalizeResume(state.resume);
+
+  /* 版式字段迁移：旧存档没有 exportTemplate，版式藏在 source 的 `template:xxx` 里。
+     只迁移一次，之后 source 记「简历从哪来」、exportTemplate 记「导出用哪套版式」，
+     两者互不覆盖。 */
+  {
+    const ids = templates.map(t => t.id);
+    if (!ids.includes(state.exportTemplate)) {
+      const legacy = typeof state.source === "string" && state.source.startsWith("template:")
+        ? state.source.split(":")[1] : null;
+      state.exportTemplate = ids.includes(legacy) ? legacy : "classic";
+    }
+    state.templateId = state.exportTemplate;
+  }
 
   function saveState() {
     try {
@@ -408,6 +425,17 @@
           <button class="btn primary" data-template="${t.id}">使用此模板</button>
         </div>
       </article>`).join("");
+    renderTemplatePicker();
+  }
+
+  /* 编辑页工具栏的版式下拉：导出前随时可换，不碰简历内容。
+     首屏文案承诺「最后再选也不迟」，这个入口是承诺的落点。 */
+  function renderTemplatePicker() {
+    const picker = $("#tplPicker");
+    if (!picker) return;
+    picker.innerHTML = templates
+      .map(t => `<option value="${t.id}">${t.name}</option>`).join("");
+    picker.value = paperTemplate();
   }
 
   // 原生 confirm() 会把整个标签页挂起：弹窗没关掉之前，脚本、截图、导航全都没有响应，
@@ -446,19 +474,19 @@
   }
 
   async function startFromTemplate(templateId) {
-    // 模板会把简历重置成空白骨架：已经填过内容就必须先问一句，不能静默清空
-    const name = (templates.find(t => t.id === templateId) || {}).name || templateId;
-    if (sectionsFilled(state.resume || blankResume) > 1) {
-      const ok = await askConfirm(`切到「${name}」会清空当前已填写的简历，且不会自动备份。确定继续吗？`, "清空并切换");
-      if (!ok) return;
+    // 版式只决定预览与导出的长相，跟简历内容无关：已有内容时只换版式，绝不清空（N18）。
+    // 首屏文案早就写着「版式只在导出 DOCX 时用到，最后再选也不迟」，实现要跟文案一致。
+    const tpl = templates.find(t => t.id === templateId) || templates[0];
+    const filled = state.resume ? sectionsFilled(state.resume) : 0;
+    if (!filled) {
+      state.resume = clone(blankResume);
+      state.selectedModule = "basic";
+      state.source = `template:${tpl.id}`;
+      invalidateAgentScores();
     }
-    state.templateId = templateId;
-    state.source = `template:${templateId}`;
-    state.resume = clone(blankResume);
-    state.selectedModule = "basic";
-    invalidateAgentScores();
+    setExportTemplate(tpl.id);
     showResumeView("editor");
-    showToast(`已进入「${name}」模板编辑器`);
+    showToast(filled ? `已切到「${tpl.name}」，简历内容保留` : `已进入「${tpl.name}」模板编辑器`);
   }
 
   /* ============ 简历文本 → 结构化（本地确定性解析） ============
@@ -778,7 +806,24 @@
   /* ============ 编辑页：右栏整体预览（按模板渲染） ============ */
 
   function paperTemplate() {
-    return state.source === "upload" ? "classic" : (state.source?.split(":")[1] || "classic");
+    const ids = templates.map(t => t.id);
+    return ids.includes(state.exportTemplate) ? state.exportTemplate : "classic";
+  }
+
+  function templateName(id = paperTemplate()) {
+    return (templates.find(t => t.id === id) || templates[0]).name;
+  }
+
+  /* 换版式统一入口：工具栏下拉、首屏模板卡、导出前预览都走这里，
+     保证「选了哪套」只有一个真相（state.exportTemplate），不再依赖 source。 */
+  function setExportTemplate(id) {
+    const ids = templates.map(t => t.id);
+    state.exportTemplate = ids.includes(id) ? id : "classic";
+    state.templateId = state.exportTemplate;
+    const picker = $("#tplPicker");
+    if (picker) picker.value = state.exportTemplate;
+    renderPaper();
+    saveState();
   }
 
   function renderPaper() {
@@ -786,9 +831,12 @@
     const progress = overallProgress(r);
     $("#progressText").textContent = `整体完成度 ${progress}%`;
     const badge = $("#sourceBadge");
-    if (state.source === "upload") { badge.textContent = "上传解析"; badge.className = "badge upload"; }
-    else if (state.source === "paste") { badge.textContent = "粘贴解析"; badge.className = "badge upload"; }
-    else { badge.textContent = `模板 · ${templates.find(t => t.id === paperTemplate())?.name || ""}`; badge.className = "badge"; }
+    const tname = templateName();
+    // 徽章同时交代「内容从哪来」和「现在用哪套版式」：模板被 source 覆盖过，
+    // 光写「粘贴解析」看不出导出会是什么样子。
+    if (state.source === "upload") { badge.textContent = `上传解析 · ${tname}`; badge.className = "badge upload"; }
+    else if (state.source === "paste") { badge.textContent = `粘贴解析 · ${tname}`; badge.className = "badge upload"; }
+    else { badge.textContent = `模板 · ${tname}`; badge.className = "badge"; }
 
     const tpl = paperTemplate();
     const text = (value, placeholder = "未填写") => value ? escapeHTML(value) : `<span class="pp-empty">${placeholder}</span>`;
@@ -1059,6 +1107,15 @@
     return /[「」『』]/.test(core) ? core : `「${core}」`;
   }
 
+  // 模型偶尔把内部字段名（foundation / tech_depth…）直接写进扣分说明（N13），
+  // 学生看不懂。渲染前统一换成中文标签：只匹配完整 ASCII 词，不会误伤正常英文术语。
+  const DIM_KEY_LABEL = {};
+  [...careerMeta, ...interviewMeta].forEach(([k, label]) => { DIM_KEY_LABEL[k] = label; });
+  const DIM_KEY_RE = new RegExp(
+    `(^|[^A-Za-z0-9_])(${Object.keys(DIM_KEY_LABEL).join("|")})(?![A-Za-z0-9_])`, "g");
+  const scrubInternal = text => String(text || "")
+    .replace(DIM_KEY_RE, (m, pre, k) => pre + (DIM_KEY_LABEL[k] || k));
+
   // 从证据里挑「最该先改的三件事」：先按该维分数从低到高（弱项先修），
   // 同一维内按原顺序；改法文案撞车的只留一条。
   function topFixes(evidence, scores) {
@@ -1068,7 +1125,8 @@
       return scores && typeof scores[k] === "number" ? scores[k] : 9;
     };
     const seen = new Set();
-    return evidence
+    const seenDim = new Set();
+    const ordered = evidence
       .map((e, i) => ({ e, i }))
       .sort((a, b) => rank(a.e.dim) - rank(b.e.dim) || a.i - b.i)
       .filter(({ e }) => {
@@ -1076,9 +1134,18 @@
         if (!sig || seen.has(sig)) return false;
         seen.add(sig);
         return true;
-      })
-      .slice(0, 3)
-      .map(({ e }) => e);
+      });
+    // 第一轮：同一维度只留一条——三条里出现两条「沟通表达」等于只给了两件事，
+    // 改起来还是同一个模块，白占额度（N19）。
+    const picked = [];
+    const rest = [];
+    ordered.forEach(item => {
+      const dk = key(item.e.dim);
+      if (!seenDim.has(dk) && picked.length < 3) { seenDim.add(dk); picked.push(item); }
+      else rest.push(item);
+    });
+    // 维度不足三个时才用剩下的补位，保证「三件事」不会只剩两条
+    return picked.concat(rest).slice(0, 3).map(({ e }) => e);
   }
 
   function renderAdvicePanel(r, scores) {
@@ -1106,8 +1173,8 @@
       const evidenceHtml = agentEvidence.map(e => `
         <li><div>
           <div class="evidence-quote">${escapeHTML(wrapQuote(e.quote))}</div>
-          <div class="evidence-line"><strong>${escapeHTML(dimLabel(e.dim))}</strong>${escapeHTML(e.problem)}</div>
-          <div class="evidence-fix">改法：${escapeHTML(e.fix)}</div>
+          <div class="evidence-line"><strong>${escapeHTML(dimLabel(e.dim))}</strong>${escapeHTML(scrubInternal(e.problem))}</div>
+          <div class="evidence-fix">改法：${escapeHTML(scrubInternal(e.fix))}</div>
         </div></li>`).join("");
       const gaps = agentGaps.filter(g => g && g.fact_id);
       const gapsHtml = gaps.length ? `
@@ -2203,8 +2270,17 @@
       }
       const blob = await res.blob();
       const basic = state.resume.basic || {};
-      const nm = basic.name || "";
-      const tg = basic.target || "";
+      // 文件名收敛：去非法字符，并把「·」「/」这类分隔符统一成短横。
+      // 「林可-后端开发工程师 · 上海.docx」里的「· 」会被部分网盘/邮件客户端截断或转义（N21）。
+      const clean = s => String(s || "")
+        .replace(/\s*[·•|｜/\\]\s*/g, "-")
+        .replace(/[:*?"<>]/g, "")
+        .replace(/\s+/g, " ")
+        .replace(/-{2,}/g, "-")
+        .replace(/^[-\s]+|[-\s]+$/g, "")
+        .trim();
+      const nm = clean(basic.name);
+      const tg = clean(basic.target);
       const base = nm && tg ? `${nm}-${tg}` : (nm || tg || "简历");
       const name = base + ".docx";
       const url = URL.createObjectURL(blob);
@@ -2533,7 +2609,19 @@
 
     /* 编辑页 */
     $("#backEntry").addEventListener("click", () => showResumeView("entry"));
-    $("#gotoAnalysis").addEventListener("click", () => showResumeView("analysis"));
+    $("#gotoAnalysis").addEventListener("click", () => {
+      // 空简历进诊断页只会看到 0 分与空雷达，之前点了连提示都没有（N11）
+      if (!state.resume || sectionsFilled(state.resume) === 0) {
+        showToast("先上传、粘贴或填一份简历，才有五维可看", "error");
+        return;
+      }
+      showResumeView("analysis");
+    });
+    // 版式下拉：只改 exportTemplate，不动简历内容
+    $("#tplPicker").addEventListener("change", event => {
+      setExportTemplate(event.target.value);
+      showToast(`导出与预览已切到「${templateName()}」`);
+    });
     $("#gotoInterview").addEventListener("click", () => { switchNav("interview"); showInterviewView("setup"); });
     $("#exportDocx").addEventListener("click", exportResumeDocx);
     $("#analysisBack").addEventListener("click", () => showResumeView("editor"));

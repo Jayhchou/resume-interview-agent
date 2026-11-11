@@ -211,6 +211,16 @@ svg[aria-hidden] { width: 18px; height: 18px; fill: none; stroke: currentColor; 
    不加 flex-wrap 时会撑破文档宽度（整页横向可拖动），所以允许换行，
    窄屏再让按钮自己均分一行，避免出现一条缝到底的排版。 */
 .toolbar-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+/* 版式下拉：紧挨导出按钮，改的是 exportTemplate，不动简历内容 */
+.tpl-picker {
+  display: inline-flex; align-items: center; gap: 6px; padding: 0 10px;
+  border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel);
+}
+.tpl-picker span { font-size: 12px; font-weight: 600; color: var(--muted); }
+.tpl-picker select {
+  border: 0; background: transparent; font: inherit; font-size: 13px; font-weight: 600;
+  color: var(--ink); padding: 8px 2px; cursor: pointer; outline: none; max-width: 132px;
+}
 
 /* ===== 编辑页三栏：模块目录 / 编辑 / 整体预览 ===== */
 #resumeEditor.subview { max-width: 1560px; }
@@ -727,6 +737,7 @@ svg[aria-hidden] { width: 18px; height: 18px; fill: none; stroke: currentColor; 
   .editor-toolbar { gap: 10px; }
   .toolbar-actions { width: 100%; justify-content: stretch; }
   .toolbar-actions .btn { flex: 1 1 auto; padding: 9px 12px; }
+  .tpl-picker { flex: 1 1 100%; justify-content: center; padding: 6px 10px; }
   /* 390px 宽下「题目 + 四枚标签」挤在一行会把标签顶出卡片，这里让标签换行到下一排。
      换行后要跟标题拉开距离并对齐到题目文字：否则四枚小方块紧贴标题第二行，
      读起来像副标题，而不是这题的 STAR 判定。 */

@@ -428,9 +428,9 @@ def _build_modern(doc, b, sections):
     from docx.oxml import OxmlElement
 
     # 页面内容区宽度：A4 210mm - 左右边距(18mm*2) ≈ 174mm ≈ 16.5cm
-    TOTAL_W = 16.5
-    MAIN_W = 12.3   # 主栏宽
-    ASIDE_W = 4.2   # 侧栏宽（约 25%，对齐前端 112px 侧栏）
+    TOTAL_W = 17.4
+    MAIN_W = 13.0   # 主栏宽
+    ASIDE_W = 4.4   # 侧栏宽（约 25%，对齐前端 112px 侧栏）
 
     # ===== 页首：独立段落 + 段落底纹 =====
     head = doc.add_paragraph()

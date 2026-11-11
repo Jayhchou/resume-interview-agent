@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>简历陪练 · 智能体版</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231f6f5c'/%3E%3Ctext x='16' y='22' font-size='16' text-anchor='middle' fill='white' font-family='sans-serif'%3E%E9%99%AA%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="styles.css?v=34">
+  <link rel="stylesheet" href="styles.css?v=35">
 </head>
 <body>
   <!-- = 内置图标 = -->
@@ -23,7 +23,7 @@
       <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
       <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v4h16v-4"/></symbol>
       <symbol id="i-layout" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/></symbol>
-      <symbol id="i-school" viewBox="0 0 24 24"><path d="M2 9l10-5 10 5-10 5z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></symbol>
+      <symbol id="i-school" viewBox="0 0 24 24"><path d="M12 4l9 4.5-9 4.5-9-4.5z"/><path d="M6 11v4.6c0 1.6 2.7 2.9 6 2.9s6-1.3 6-2.9V11"/><path d="M21 8.5v5"/></symbol>
       <symbol id="i-case" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V4h6v3M3 13h18"/></symbol>
       <symbol id="i-code" viewBox="0 0 24 24"><path d="M8 6l-6 6 6 6M16 6l6 6-6 6"/></symbol>
       <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 5-5 8-5s6.5 1 8 5"/></symbol>
@@ -114,6 +114,10 @@
             </div>
           </div>
           <div class="toolbar-actions">
+            <label class="tpl-picker" title="只改预览与导出的版式，不影响已填写内容">
+              <span>版式</span>
+              <select id="tplPicker" aria-label="导出模板"></select>
+            </label>
             <button class="btn ghost" id="exportDocx"><svg aria-hidden="true" viewBox="0 0 24 24"><use href="#i-doc"/></svg>导出 DOCX</button>
             <button class="btn ghost" id="gotoAnalysis"><svg aria-hidden="true" viewBox="0 0 24 24"><use href="#i-target"/></svg>简历五维</button>
             <button class="btn primary" id="gotoInterview"><svg aria-hidden="true" viewBox="0 0 24 24"><use href="#i-chat"/></svg>进入 AI 面试</button>
@@ -329,6 +333,6 @@
   <!-- 云 SDK 本地托管：jsdelivr 在国内网络常被拦，线上必须自带 -->
   <script src="vendor/workbuddy-cloud-sdk.global.js"></script>
   <script src="agent.js?v=23"></script>
-  <script src="app.js?v=43"></script>
+  <script src="app.js?v=44"></script>
 </body>
 </html>
