@@ -25,6 +25,7 @@
   let cloud = null;
   let modelId = "";
   let modelName = "";
+  let fastModelId = "";   // 快文本模型（简历解析等确定性任务用，优先 hunyuan-chat）
   let ready = false;
   let reason = "未初始化";
   let busy = false;
@@ -152,6 +153,11 @@
       if (!picked) throw new Error("当前模型目录里没有支持工具调用的模型，智能体无法运行");
       modelId = picked.id;
       modelName = picked.name || picked.id;
+      // 快文本模型：简历解析这类确定性任务用，优先 hunyuan-chat（列表里唯一的非推理快模型）。
+      // 排除 default/auto 等占位符，避免匹配到慢模型。
+      const fast = usable.find(m => m.id === "hunyuan-chat") ||
+        usable.find(m => m.supportsReasoning !== true && m.onlyReasoning !== true && !/default|auto/i.test(m.id || ""));
+      fastModelId = fast ? fast.id : modelId;
       // models.list 能通，不代表 chat 能通：两者走的头与预检策略不同。
       // 之前就是这里静默失败，界面却一直显示「就绪」，等到诊断才暴露。
       try {
@@ -516,6 +522,31 @@
     return http(`/api/agent/session/${encodeURIComponent(sessionId)}`);
   }
 
+  // 简历文本 → 结构化（大模型兜底）。本地正则解析出现明显空缺时调用。
+  // 约束极严：只做「从原文抽取」，禁止脑补任何原文没有的事实、数字、公司、时间。
+  async function parseResume(rawText) {
+    if (!cloud || !modelId) throw new Error("云端模型未就绪");
+    const useModel = fastModelId || modelId;
+    const sys = "你是简历解析器。把候选人简历文本解析成结构化 JSON。铁律：只能抽取原文里确实出现的信息，禁止编造、推断、补充任何原文没有的字段、数字、公司名、时间、技能名。原文没有的就留空字符串或空数组。只输出 JSON，不要任何解释。";
+    const user = `简历原文：\n${(rawText || "").slice(0, 4000)}\n\n输出 JSON 结构（字段严格如下，缺则空）：\n{\n  "basic": {"name":"姓名","phone":"电话","email":"邮箱","city":"城市","target":"求职意向"},\n  "education": [{"school":"学校","major":"专业","degree":"学历","time":"时间段","extra":"其他"}],\n  "internships": [{"company":"公司","role":"职位","time":"时间段","bullets":["职责要点"]}],\n  "projects": [{"name":"项目名","role":"角色","stack":"技术栈","time":"时间段","bullets":["项目要点"]}],\n  "skills": ["技能1","技能2"],\n  "certs": ["证书1"],\n  "summary": "自我评价"\n}`;
+    const stream = cloud.llm.chat.completions.create({
+      model: useModel,
+      messages: [{ role: "system", content: sys }, { role: "user", content: user }],
+      stream: true,
+      temperature: 0
+    });
+    let content = "";
+    for await (const chunk of stream) {
+      const delta = (chunk.choices && chunk.choices[0] && chunk.choices[0].delta) || {};
+      if (delta.content) content += delta.content;
+    }
+    const start = content.indexOf("{");
+    const end = content.lastIndexOf("}");
+    if (start < 0 || end < 0) throw new Error("模型未返回有效 JSON");
+    const parsed = JSON.parse(content.slice(start, end + 1));
+    return parsed;
+  }
+
   window.CoachAgent = {
     init,
     diagnose,
@@ -529,6 +560,7 @@
     resetSession,
     session,
     callTool,
+    parseResume,
     abort: () => { if (abortCtrl) abortCtrl.abort(); },
     status: () => ({ ready, reason, model: modelName, sessionId, api: apiBase() }),
     get ready() { return ready; }

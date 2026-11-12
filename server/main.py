@@ -347,14 +347,26 @@ def extract_pdf_text(content: bytes) -> str:
 
 def extract_docx_text(content: bytes) -> str:
     import docx
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
 
     doc = docx.Document(io.BytesIO(content))
-    parts = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-    for table in doc.tables:
-        for row in table.rows:
-            cells = [c.text.strip() for c in row.cells if c.text.strip()]
-            if cells:
-                parts.append(" | ".join(cells))
+    # 按文档实际顺序遍历 body 元素：段落与表格交替提取。
+    # 不能"先段落后表格"——表格型简历的标题（段落）和内容（表格）是交错的，
+    # 分开提取会把内容整体挪到末尾，导致分节解析全部落空。
+    parts = []
+    for child in doc.element.body:
+        tag = child.tag.split("}")[-1]
+        if tag == "p":
+            t = Paragraph(child, doc).text.strip()
+            if t:
+                parts.append(t)
+        elif tag == "tbl":
+            table = Table(child, doc)
+            for row in table.rows:
+                cells = [c.text.strip() for c in row.cells if c.text.strip()]
+                if cells:
+                    parts.append(" | ".join(cells))
     return "\n".join(parts)
 
 

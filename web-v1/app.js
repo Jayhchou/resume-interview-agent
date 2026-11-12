@@ -218,13 +218,16 @@
   };
   const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 
-  function showToast(message, type = "success") {
+  function showToast(message, type = "success", duration = 2400) {
     const toast = document.createElement("div");
     toast.className = `toast ${type === "error" ? "error" : ""}`;
     toast.innerHTML = `${icon(type === "error" ? "alert" : "check")}<span>${escapeHTML(message)}</span>`;
     $("#toastRegion").appendChild(toast);
-    setTimeout(() => toast.classList.add("leaving"), 2400);
-    setTimeout(() => toast.remove(), 2800);
+    if (duration > 0) {
+      setTimeout(() => toast.classList.add("leaving"), duration);
+      setTimeout(() => toast.remove(), duration + 400);
+    }
+    return toast;  // 返回元素，供长任务提示在完成后手动移除
   }
 
   function setPath(object, path, value) {
@@ -495,14 +498,21 @@
      之前这里直接加载一份写死的示例简历，学生贴自己的简历会看到别人的内容。 */
 
   const SECTION_RULES = [
-    ["education", /^(教育背景|教育经历|学历|教育与培训|教育信息|教育)/],
-    ["internships", /^(实习经历|工作经历|实习经验|工作实习|实习|工作经验|实践经历)/],
-    ["projects", /^(项目经历|项目经验|科研经历|项目实践|项目)/],
-    ["skills", /^(专业技能|技能特长|技术栈|技术能力|技能证书|技能)/],
-    ["certs", /^(证书|获奖|荣誉|奖项|资格证书|奖项荣誉)/],
-    ["summary", /^(自我评价|个人评价|自我介绍|个人总结|个人简介|自我描述)/],
-    ["basic", /^(基本信息|个人信息|联系方式|个人资料)/]
+    ["education", /^(教育背景|教育经历|学历|教育与培训|教育信息|学习经历|在校经历|教育)/],
+    ["internships", /^(实习经历|工作经历|工作\/实习经历|实习经验|工作实习|实习|工作经验|实践经历|职业经历|在职经历)/],
+    ["projects", /^(项目经历|项目经验|科研经历|项目实践|项目|参赛经历|竞赛经历)/],
+    ["skills", /^(专业技能|技能特长|技术栈|技术能力|技能证书|技能与证书|技能)/],
+    ["certs", /^(证书|获奖|荣誉|奖项|资格证书|奖项荣誉|所获荣誉)/],
+    ["summary", /^(自我评价|个人评价|自我介绍|个人总结|个人简介|自我描述|自我总结)/],
+    ["basic", /^(基本信息|个人信息|联系方式|个人资料|个人简历|简历)/]
   ];
+
+  // 中文/数字序号前缀：标题常写成「一、教育背景」「1. 项目经历」「（一）工作经历」
+  const ORDINAL_PREFIX_RE = /^[\s]*([（(]?[一二三四五六七八九十\d]+[、.．)）]?|（[一二三四五六七八九十\d]+）)[\s]*/;
+
+  function stripOrdinal(s) {
+    return (s || "").replace(ORDINAL_PREFIX_RE, "").trim();
+  }
 
   const BULLET_RE = /^[-*•·–—○●▪]|^\d{1,2}[.、)）]/;
   const DATE_RE = /(19|20)\d{2}\s*[.\-/年]?\s*(\d{1,2})?\s*(月)?\s*[-–—~至到]\s*((19|20)\d{2})?\s*[.\-/年]?\s*(\d{1,2})?\s*(月)?/;
@@ -572,18 +582,38 @@
     const raw = (text || "").replace(/\u00a0/g, " ").split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     if (!raw.length) return out;
 
+    // 0) 表格行展开：docx 表格被后端提取成 `姓名 | 张三 | 性别 | 男` 这种
+    //    key/value 交替的行。把它拆成 `姓名：张三`、`性别：男` 等独立行，
+    //    这样后面的基本信息/教育/工作正则才能命中。
+    const expanded = [];
+    raw.forEach(line => {
+      const cells = line.split(/[|｜]/).map(s => s.trim()).filter(Boolean);
+      // 至少 4 段且成对（key value key value ...）才当表格行处理，
+      // 否则可能是普通文本里的竖线分隔（如项目标题 `项目一：xxx | 2020.01`）。
+      const looksTableRow = cells.length >= 4 && cells.length % 2 === 0 &&
+        cells.every((c, i) => i % 2 === 0 ? c.length <= 8 : true);
+      if (looksTableRow) {
+        for (let i = 0; i < cells.length; i += 2) {
+          expanded.push(cells[i] + "：" + cells[i + 1]);
+        }
+      } else {
+        expanded.push(line);
+      }
+    });
+    const lines = expanded;
+
     // 1) 切小节：短行且命中标题关键词 → 换段；其余归当前段
     const buckets = { head: [] };
     let cur = "head";
-    raw.forEach(line => {
-      const bare = line.replace(/[【】\[\]#*]/g, "").replace(/[：:]\s*$/, "").trim();
+    lines.forEach(line => {
+      const bare = stripOrdinal(line.replace(/[【】\[\]#*]/g, "").replace(/[：:]\s*$/, "").trim());
       const hit = bare.length <= 14 && SECTION_RULES.find(([, re]) => re.test(bare));
       if (hit) { cur = hit[0]; buckets[cur] = buckets[cur] || []; return; }
       (buckets[cur] = buckets[cur] || []).push(line);
     });
 
     const head = buckets.head || [];
-    const allText = raw.join("\n");
+    const allText = lines.join("\n");
 
     // 2) 基本信息：姓名 / 电话 / 邮箱 / 城市 / 求职意向
     const phone = allText.match(/1[3-9]\d{9}/);
@@ -698,26 +728,78 @@
   }
 
   function applyParsedResume(text, label, kind = "paste") {
-    const parsed = parseResumeText(text);
-    const filled = sectionsFilled(parsed);
+    const cleanText = (text || "").trim();
+    if (!cleanText) {
+      showToast("没解析出内容：请确认文件里是可选中的文字（扫描件需先 OCR），或直接粘贴正文", "error");
+      return false;
+    }
+
+    // 策略：除系统自产的格式化简历外，一律优先用大模型解析（准确率高、抗格式差异）。
+    // 本地正则只作「大模型不可用 / 失败」时的降级兜底。
+    const canLLM = !!(window.CoachAgent && window.CoachAgent.parseResume && agentReady());
+
+    // 先落一份本地正则结果，作为兜底 + 让界面立即有内容
+    const localParsed = parseResumeText(cleanText);
+
+    state.source = kind;
+    state.resume = localParsed;
+    state.selectedModule = "basic";
+    invalidateAgentScores();
+    showResumeView("editor");
+    requestAnimationFrame(() => { if (state.resume === localParsed && state.resumeView === "editor") renderEditor(); });
+
+    if (canLLM) {
+      // 解析可能耗时数秒，用「持久提示」直到解析完成，避免用户以为卡住
+      const loading = showToast("正在用 AI 解析简历，请稍候…", "success", 0);
+      window.CoachAgent.parseResume(cleanText).then(llm => {
+        loading.remove();
+        if (llm && (llm.basic || llm.education || llm.internships || llm.projects || llm.skills)) {
+          const merged = mergeParsed(localParsed, llm);
+          state.resume = merged;
+          invalidateAgentScores();
+          requestAnimationFrame(() => { if (state.resume === merged && state.resumeView === "editor") renderEditor(); });
+          showToast(`AI 解析完成：姓名${merged.basic?.name || "待补"}、教育 ${merged.education.length} 条、实习 ${merged.internships.length} 条、项目 ${merged.projects.length} 段、技能 ${merged.skills.length} 项，请核对`);
+        } else {
+          showToast("AI 解析未返回有效结果，已保留本地解析，请手动补齐", "error");
+        }
+      }).catch(() => {
+        loading.remove();
+        showToast("AI 解析失败，已保留本地解析结果，请手动补齐", "error");
+      });
+      return true;
+    }
+
+    // 大模型不可用：走本地正则，按填充度给提示
+    const filled = sectionsFilled(localParsed);
     if (!filled) {
       showToast("没解析出内容：请确认文件里是可选中的文字（扫描件需先 OCR），或直接粘贴正文", "error");
       return false;
     }
-    state.source = kind;
-    state.resume = parsed;
-    state.selectedModule = "basic";
-    invalidateAgentScores();
-    showResumeView("editor");
-    // 解析是异步进来的（FileReader / 服务端提取 → setTimeout）。首屏三块面板再补画一帧，
-    // 保证左栏计数、编辑面板、预览读的是同一份结构化结果，不会出现「0 项技能 + 6 个标签」。
-    requestAnimationFrame(() => { if (state.resume === parsed && state.resumeView === "editor") renderEditor(); });
     if (filled < 3) {
-      showToast(`只解析出 ${filled} 项（${parsed.basic.name || "无姓名"}）。简历是整段文字时请按「教育背景 / 实习经历 / 项目经历 / 专业技能」分行加小标题，否则抽不出内容`, "error");
+      showToast(`只解析出 ${filled} 项（${localParsed.basic.name || "无姓名"}）。简历是整段文字时请按「教育背景 / 实习经历 / 项目经历 / 专业技能」分行加小标题，否则抽不出内容`, "error");
       return true;
     }
-    showToast(`${label}已解析：姓名${parsed.basic.name || "待补"}、技能 ${parsed.skills.length} 项、项目 ${parsed.projects.length} 段，请在左侧逐项核对`);
+    showToast(`${label}已解析：姓名${localParsed.basic.name || "待补"}、技能 ${localParsed.skills.length} 项、项目 ${localParsed.projects.length} 段，请在左侧逐项核对`);
     return true;
+  }
+
+  // 合并本地解析和大模型解析：大模型有值的字段优先，否则保留本地
+  function mergeParsed(local, llm) {
+    const basic = Object.assign({}, local.basic || {}, llm.basic || {});
+    // 大模型字段优先，空值不覆盖本地
+    ["name", "phone", "email", "city", "target"].forEach(k => {
+      if (llm.basic && llm.basic[k]) basic[k] = llm.basic[k];
+    });
+    const pick = (a, b) => (Array.isArray(b) && b.length ? b : (Array.isArray(a) ? a : []));
+    return {
+      basic,
+      education: pick(local.education, llm.education),
+      internships: pick(local.internships, llm.internships),
+      projects: pick(local.projects, llm.projects),
+      skills: pick(local.skills, llm.skills),
+      certs: pick(local.certs, llm.certs),
+      summary: (llm.summary || local.summary || ""),
+    };
   }
 
   function parseUpload(fileName, text, kind = "paste") {
